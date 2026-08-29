@@ -22,6 +22,10 @@ Nothing in this document is implemented yet. It exists so that architectural mis
 | Authentication hosting | Self-hosted, own PostgreSQL, no identity vendor |
 | Code delivery | GitHub repository plus a per-phase archive |
 | Session scope | Phase 1 architecture only, no application code |
+| Routing | Path-based on one host (`/plan`, `/fit`). No domain yet, revisit at Phase 16 |
+| Notifications | Web push accepted with its iOS limits; in-app reminders are the baseline |
+| Hosting region | London, `aws-eu-west-2`, API and worker co-located |
+| Version control | Scoped fine-grained GitHub token, single repository |
 
 ---
 
@@ -125,7 +129,7 @@ The recommendation keeps every property you asked for, self-hosted, your own Pos
 
 **CSRF:** the refresh and logout endpoints are `POST` only, require a custom header (`X-Daybook-Client`) that a cross-site form cannot set, and validate the `Origin` header against an allowlist. All other endpoints are bearer-token authenticated and therefore not cookie-driven.
 
-**Single sign-on across the two apps:** one refresh cookie on the shared parent domain. Opening Fitness after signing in to Daybook silently refreshes into a Fitness-audience access token. Logout revokes the family, which ends both sessions.
+**Single sign-on across the two apps:** with path-based routing (decision D4), both apps share one origin, so a single origin-scoped refresh cookie covers both and `SameSite` tightens from `Lax` to `Strict`. Opening Fitness after signing in to Daybook silently refreshes into a Fitness-audience access token. Logout revokes the family, which ends both sessions. If the apps later move to subdomains, the cookie gains a parent-domain scope and `SameSite` returns to `Lax`: a configuration change, not a redesign.
 
 **Google sign-in** is deferred to a later phase, wired as an additional credential row against the same `users` record rather than a parallel identity. Apple sign-in is deferred until there is a native app that requires it.
 
@@ -209,8 +213,10 @@ The interface should read as a calm daily instrument rather than an analytics co
 | Environment | Web | API + worker | Database |
 |---|---|---|---|
 | Local | `pnpm dev` | `pnpm dev` | Docker Postgres, or local instance |
-| Preview | Vercel preview per PR | Fly.io preview app | Neon branch per PR |
-| Production | Vercel | Fly.io, 2 machines minimum | Neon, PITR enabled |
+| Preview | Vercel preview per PR | Fly.io preview app, `lhr` | Neon branch per PR |
+| Production | Vercel | Fly.io `lhr` (London), 2 machines minimum | Neon `aws-eu-west-2` (London), PITR enabled |
+
+Region is London throughout (decision D6). Neon has no African region, and London is the nearest available with good subsea routing from West Africa, as well as the obviously right choice if the product owner ends up UK-based. A Neon project's region is fixed at creation: changing it later means creating a new project and migrating, so this is worth getting right now rather than later.
 
 Container images are built for the API and worker so the whole stack stays portable to a single VPS if hosting economics change. Docker Compose covers local development.
 
@@ -244,7 +250,8 @@ Container images are built for the API and worker so the whole stack stays porta
 
 ## 12. Open decisions for the product owner
 
+**Resolved 2026-08-28:** routing, notifications, hosting region and version control. See the decisions log in ROADMAP.md §5.
+
+**Still open:**
+
 1. **Auth approach** (§5.1). Confirm the API-owned token model, or keep Auth.js literally and accept one app hosting identity.
-2. **Domain name.** Cross-app single sign-on relies on two subdomains of one parent domain. Do you have a domain, or should the plan assume path-based routing on a single host instead?
-3. **Notifications.** Web push covers desktop and Android well, and iOS only when installed to the home screen. Is that acceptable, or does the notification requirement (§16 of the brief) push us toward a native client sooner?
-4. **Data residency and hosting region.** Defaulting to EU (London or Frankfurt) given your location. Confirm.

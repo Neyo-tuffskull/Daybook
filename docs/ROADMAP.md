@@ -120,12 +120,24 @@ The alternative, building all the infrastructure first and the experience last, 
 
 ---
 
-## 5. Open decisions blocking Phase 2
+## 5. Decisions log
 
-Repeated from ARCHITECTURE.md §12 because they gate the next phase:
+| # | Decision | Resolution | Date |
+|---|---|---|---|
+| D1 | Platform | Web-first installable PWA, two Next.js apps, mobile-ready | 2026-08-28 |
+| D2 | Auth hosting | Self-hosted, own PostgreSQL, no identity vendor | 2026-08-28 |
+| D3 | Delivery | GitHub repository plus a per-phase archive | 2026-08-28 |
+| D4 | **Domain and routing** | **No domain yet. Build for path-based routing on one host: `/plan` and `/fit`. Revisit at Phase 16.** | 2026-08-28 |
+| D5 | **Notifications** | **Accept web push limits. iOS requires 16.4+ and Home Screen installation. In-app reminders are the baseline; a native client stays a later option.** | 2026-08-28 |
+| D6 | **Hosting region** | **London, `aws-eu-west-2`. API and worker co-located in London so the API-to-database hop stays in region.** | 2026-08-28 |
+| D7 | **Version control** | **Scoped fine-grained GitHub token, single repository, Contents and Workflows read/write, short expiry, revoked when the project pauses.** | 2026-08-28 |
 
-1. **Auth model.** Confirm the API-owned JWT plus rotating refresh cookie, or keep Auth.js literally and accept one app hosting identity.
-2. **Domain name.** Cross-app single sign-on assumes two subdomains under one parent. Confirm you have or will have a domain, otherwise the plan switches to path-based routing on one host.
-3. **Notifications.** Accept web push limits on iOS, or plan for a native client earlier.
-4. **Hosting region.** Defaulting to EU. Confirm or change.
-5. **GitHub repository.** Needed before Phase 2 so each phase can be committed rather than only archived.
+### Consequences of D4 for the auth design
+
+Path-based routing on one host removes the parent-domain cookie, and simplifies things rather than complicating them. Both apps are served from the same origin, so one `HttpOnly` refresh cookie scoped to that origin covers both. `SameSite` can be tightened from `Lax` to `Strict` because there is no cross-subdomain hop. The JWT `aud` claim still distinguishes the two apps for logging and per-client rate limits.
+
+Moving to subdomains later means changing the cookie `Domain` attribute, the CORS allowlist and the deploy configuration. It is a configuration change, not a redesign, which is why deferring costs nothing.
+
+### Still open
+
+1. **Auth model.** Confirm the API-owned JWT plus rotating refresh cookie, or keep Auth.js literally and accept one app hosting identity. This is the only item still blocking Phase 2 design; Phase 2 scaffolding itself can start without it.
