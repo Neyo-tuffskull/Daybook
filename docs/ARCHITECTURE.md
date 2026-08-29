@@ -131,7 +131,11 @@ The recommendation keeps every property you asked for, self-hosted, your own Pos
 
 **Single sign-on across the two apps:** with path-based routing (decision D4), both apps share one origin, so a single origin-scoped refresh cookie covers both and `SameSite` tightens from `Lax` to `Strict`. Opening Fitness after signing in to Daybook silently refreshes into a Fitness-audience access token. Logout revokes the family, which ends both sessions. If the apps later move to subdomains, the cookie gains a parent-domain scope and `SameSite` returns to `Lax`: a configuration change, not a redesign.
 
-**Google sign-in** is deferred to a later phase, wired as an additional credential row against the same `users` record rather than a parallel identity. Apple sign-in is deferred until there is a native app that requires it.
+**Google sign-in** is built in Phase 3 alongside password login, not deferred. The API is the OAuth client: Authorization Code flow with PKCE, plus `state` and `nonce` validation, with the redirect URI pointing at the API rather than at either frontend. A verified Google login ends in exactly the same place a password login does, an `auth_sessions` row, so a Google session is revocable, appears in the device list, and carries the same reuse detection.
+
+Identities are stored in `auth_identities` (see DATABASE.md), matched on the provider's subject id rather than on email, with the linking rule and unlink guard documented there. Building this in Phase 3 rather than later is deliberate: retrofitting account linking onto live accounts is materially harder than designing the table in from the start.
+
+Apple sign-in is the same shape and waits until a native client needs it.
 
 **Defence in depth at the database:** see §6.
 

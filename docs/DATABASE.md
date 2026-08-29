@@ -28,6 +28,7 @@
 erDiagram
     users ||--|| user_profiles : has
     users ||--o{ auth_sessions : has
+    users ||--o{ auth_identities : "signs in via"
     users ||--o{ activity_categories : owns
     users ||--o{ activity_series : owns
     users ||--o{ activities : owns
@@ -106,6 +107,28 @@ Constraint: `timezone` validated against `pg_timezone_names` on write.
 
 Indexes: `(user_id, expires_at)`, `(family_id)`.
 Reuse detection: presenting a token whose `rotated_at` is not null revokes every row sharing its `family_id`.
+
+### auth_identities
+
+External sign-in methods attached to an account. One user can hold a password and a Google identity at once, and either can be added or removed without touching their data.
+
+| Column | Type | Notes |
+|---|---|---|
+| id | uuid PK | |
+| user_id | uuid FK→users ON DELETE CASCADE | |
+| provider | text NOT NULL | `google`, later `apple` |
+| provider_account_id | text NOT NULL | the provider's stable subject id, never the email |
+| email_at_provider | citext | recorded for support, never used for matching |
+| linked_at / last_login_at | timestamptz | |
+
+Unique: `(provider, provider_account_id)`.
+Index: `(user_id)`.
+
+Matching is on `provider_account_id`, not on email, because a person can change the email on their Google account. Email is only ever used at the moment of first linking.
+
+**Linking rule.** A Google login is auto-linked to an existing account with the same email only when the provider asserts `email_verified: true`. Otherwise the user must sign in with their password first and link from inside the account. Skipping this allows a pre-registration hijack: someone registers an unverified account at your address, waits, and inherits it when you later sign in with Google.
+
+**Unlink guard.** Removing the last sign-in method is rejected. An account must always retain either a password or one identity.
 
 ### password_reset_tokens / email_verification_tokens
 `id uuid PK`, `user_id uuid FK`, `token_hash bytea UNIQUE`, `expires_at timestamptz`, `used_at timestamptz`, `created_at`. Reset tokens live 30 minutes, single use, and invalidate all `auth_sessions` for that user on redemption.
