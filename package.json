@@ -1,0 +1,26 @@
+{
+  "name": "daybook",
+  "private": true,
+  "packageManager": "pnpm@9.12.0",
+  "engines": { "node": ">=22.6.0" },
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "test:e2e": "playwright test",
+    "db:bootstrap": "psql -v ON_ERROR_STOP=1 -d $DATABASE_NAME -f packages/db/migrations/0000_bootstrap/bootstrap.sql",
+    "db:migrate": "prisma migrate deploy --schema packages/db/prisma/schema.prisma",
+    "db:smoke": "psql -v ON_ERROR_STOP=1 -d $DATABASE_NAME -f packages/db/tests/schema_smoke.sql",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.47.0",
+    "eslint": "^9.11.0",
+    "prettier": "^3.3.0",
+    "turbo": "^2.1.0",
+    "typescript": "^5.6.0"
+  }
+}

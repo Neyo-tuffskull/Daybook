@@ -132,9 +132,11 @@ Now the same day with no workout planned. The workout component is dropped, `W` 
 | Schedule | 0.83 | 0.4375 | 36.3 |
 | Habits | 0.75 | 0.3125 | 23.4 |
 | Timeliness | 0.62 | 0.25 | 15.5 |
-| **Total** | | 1.00 | **75.2** |
+| **Total** | | 1.00 | **75.3** |
 
 The rest day scores on its own terms rather than being marked down for a workout that was never planned.
+
+**Rounding.** The score is rounded to one decimal place, half up, from the unrounded total. Component contributions are rounded independently for display, so they can sum to 0.1 less or more than the headline figure (75.25 rounds to 75.3, while the displayed 36.3, 23.4 and 15.5 sum to 75.2). The total is authoritative; the components are an explanation, not a derivation.
 
 ---
 
@@ -191,4 +193,4 @@ Scoring lives in `packages/domain` as pure functions, so it is tested without a 
 - Table-driven tests over roughly 40 fixture days covering every component permutation, including all-ineligible (score is null), single-component days, and clamping at the weight bounds.
 - Property test: the score is always in [0, 100] or null, for any generated input.
 - Property test: renormalised weights always sum to 1 within floating-point tolerance.
-- Regression test: the worked example in §4 above produces 80.2 and 75.2. If it ever does not, this document and the code have diverged.
+- Regression test: the worked example in §4 above produces 80.2 and 75.3. If it ever does not, this document and the code have diverged.

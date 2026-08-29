@@ -107,15 +107,15 @@ packages/db  →  nothing but Prisma
 
 ## 5. Authentication architecture
 
-### 5.1 A deviation from the stated choice, and why
+### 5.1 Decided: the API owns identity (D8, 2026-08-29)
 
-You chose "self-hosted Auth.js + PostgreSQL". I am recommending a variation and flagging it rather than making the change quietly, because it affects security and the shape of the API.
+The original brief said "self-hosted Auth.js + PostgreSQL". After review the decision is to keep every property that phrase was reaching for, self-hosted, own PostgreSQL, no vendor, no cost, and move session ownership into the API. The reasoning is recorded here because it affects security and the shape of the API.
 
 Auth.js is coupled to the Next.js request lifecycle. It would place session ownership inside one frontend, which means either the Fitness app trusts the Daybook app as its identity provider (Daybook becomes a runtime dependency of Fitness), or each app runs its own Auth.js instance (two session systems, two sets of cookies, no single logout).
 
-The recommendation keeps every property you asked for, self-hosted, your own PostgreSQL, no vendor, no cost, and moves session ownership to the API where both apps are equal clients.
+The decisive constraint is narrower and harder. Auth.js's Credentials provider only supports the JWT session strategy; database sessions are not available with it. No server-side session row means nothing to revoke: no sign-out-everywhere, no actionable device list, no refresh-token reuse detection, and a password change that leaves other sessions live. Auth.js also does not hash passwords, register users, or run reset and verification flows, so most of that code is written either way.
 
-**If you would rather stay literally on Auth.js, say so and I will design it that way.** The trade-off is that one app becomes the identity host.
+The accepted cost is that this auth layer is written rather than imported. Phase 3's exit criteria and the Phase 14 audit exist to contain it.
 
 ### 5.2 The recommended model
 
@@ -252,10 +252,8 @@ Container images are built for the API and worker so the whole stack stays porta
 
 ---
 
-## 12. Open decisions for the product owner
+## 12. Decisions
 
-**Resolved 2026-08-28:** routing, notifications, hosting region and version control. See the decisions log in ROADMAP.md §5.
+All Phase 1 decisions are closed. See the decisions log in ROADMAP.md §5: platform, auth hosting, delivery, routing, notifications, hosting region, version control, and session ownership.
 
-**Still open:**
-
-1. **Auth approach** (§5.1). Confirm the API-owned token model, or keep Auth.js literally and accept one app hosting identity.
+Two items are scheduled rather than open. A domain name is needed at Phase 16, and whether to add a native client is revisited after the product has been in daily use for a month.

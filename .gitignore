@@ -6,3 +6,11 @@ dist/
 .env.local
 *.log
 coverage/
+
+# Generated
+packages/db/generated/
+.turbo/
+playwright-report/
+test-results/
+*.tsbuildinfo
+.env*.local

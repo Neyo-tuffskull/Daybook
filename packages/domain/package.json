@@ -1,0 +1,13 @@
+{
+  "name": "@daybook/domain",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "build": "echo 'consumed as source by bundlers' && exit 0",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test 'test/*.test.ts'",
+    "lint": "eslint src test"
+  }
+}

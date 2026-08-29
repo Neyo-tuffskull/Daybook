@@ -1,7 +1,7 @@
 # Development Roadmap, Risks and Phase State
 
-**Status:** Phase 1 proposal
-**Last updated:** 2026-08-28
+**Status:** Phase 1 signed off, Phase 2 in progress
+**Last updated:** 2026-08-29
 
 This file is the session-to-session handover. Any future session should read it first to know exactly where the build stopped.
 
@@ -12,8 +12,8 @@ This file is the session-to-session handover. Any future session should read it 
 | Phase | Name | State | Notes |
 |---|---|---|---|
 | 0 | Project discovery | **complete** | Green field. Nothing existed. Toolchain verified. |
-| 1 | Architecture | **complete, awaiting sign-off** | This documentation set. Four open decisions in ARCHITECTURE.md §12. |
-| 2 | Project foundation | not started | |
+| 1 | Architecture | **complete, signed off** | Documentation set complete. All eight decisions closed. |
+| 2 | Project foundation | **partially complete** | Database and domain layers verified against a live PostgreSQL 16. Install path unverified: the build environment had no npm registry access. See docs/SETUP.md section 5. |
 | 3 | Authentication | not started | |
 | 4 | Daybook core | not started | |
 | 5 | Recurring schedules | not started | |
@@ -37,9 +37,30 @@ This file is the session-to-session handover. Any future session should read it 
 Each phase has an exit criterion. A phase is not "done" because the code exists; it is done when the criterion is demonstrably met. This is how the brief's rule 7 (do not claim something works unless it has been tested) is enforced in practice.
 
 ### Phase 2: Foundation
-Turborepo, pnpm workspaces, four apps and five packages scaffolded, PostgreSQL running locally, Prisma schema translated from DATABASE.md with the first migration applied, ESLint and Prettier and TypeScript strict mode, Vitest and Playwright wired, GitHub Actions running lint plus typecheck plus test on every push, Docker Compose for local development, `.env.example` documented.
+Turborepo, pnpm workspaces, four apps and five packages scaffolded, PostgreSQL running locally, the schema applied, ESLint and Prettier and TypeScript strict mode, test runners wired, GitHub Actions, Docker Compose, `.env.example` documented.
 
-**Exit criterion:** `pnpm install && pnpm dev` brings up both frontends, the API and the database on one machine, `pnpm test` passes, and CI is green on a pull request.
+**Exit criterion:** `pnpm install && pnpm dev` brings up both frontends, the API and the database on one machine, `pnpm test` passes, and CI is green on a pull request. **Not yet met.**
+
+**Done and proved (2026-08-29):**
+
+- Bootstrap and initial migration apply to a clean PostgreSQL 16: 30 tables, 98 indexes, 152 constraints, 33 row-level security policies, 15 triggers
+- Migrations re-apply from scratch to a second database
+- 15 schema assertions pass, covering generated columns, partial unique indexes, the four sync idempotency guards, cascade deletes, foreign-key index coverage and live tenant isolation queried as the unprivileged role
+- 30 domain unit tests pass, including daylight-saving transitions in both directions and the documented scoring examples
+- Every JSON and YAML config parses
+
+**Two defects the schema tests caught while being written:**
+
+1. Six foreign keys had no index. Postgres does not create them, and the omission surfaces later as slow deletes and lock contention.
+2. `auth_sessions`, `password_reset_tokens` and `email_verification_tokens` had no access control. They cannot use the tenant policy, because authentication happens before a user context exists. Fixed by giving them a separate `daybook_auth` role and denying the general application role any access, so an application bug cannot read a password hash. Both now have standing tests.
+
+**Not done, blocked on network access:** `pnpm install` was impossible in the build environment (npm registry refused at the network layer), so the install, build, lint, typecheck, Next.js render, NestJS boot, Prisma generate, Docker Compose, CI and Playwright paths are all unverified. Dependency versions are caret ranges chosen from knowledge rather than resolved against the registry.
+
+**To close this phase:** run `pnpm install && pnpm dev` on a machine with network access and report failures.
+
+### Decision: SQL-first migrations
+
+Prisma cannot express partial unique indexes, generated columns, row-level security or triggers, and the schema depends on all four. Rather than generate migrations and patch them by hand every time, migrations are hand-written SQL and are the source of truth; `prisma db pull` regenerates the models from the applied schema, and CI fails on drift between the two.
 
 ### Phase 3: Authentication
 Registration, email verification, login, refresh rotation with reuse detection, logout, logout-all, password reset, session listing, profile and preferences. Rate limiting on auth routes. RLS policies enabled and enforced.
@@ -103,7 +124,7 @@ Polish, security audit, full test sweep, production deployment, final audit agai
 | R3 | **Duplicate or lost sync events** producing double Daybook entries or a workout that never lands. | Medium | High | Four layers of idempotency (SYNC.md §5); transactional outbox so the event cannot be lost; dead-letter surfaced in the UI with one-tap manual linking. |
 | R4 | **Scope.** The brief describes roughly a year of work for a team. Attempting it linearly stalls before anything is usable. | High | High | Phase gates with hard exit criteria; a usable slice by Phase 5 (plan a day, execute it, see it) that is worth using even if the project paused there. |
 | R5 | **Offline conflict complexity** expanding without bound. | Medium | Medium | Offline writes restricted to a fixed list; everything else requires connectivity; conflicts surfaced to the user rather than auto-merged. |
-| R6 | **iOS notification limits.** Web push on iOS needs 16.4+ and home-screen installation, and is less reliable than native. | High | Medium | Set the expectation now (open decision 3); in-app reminders as the baseline; native client as a later option rather than a rewrite, since the API is already separate. |
+| R6 | **iOS notification limits.** Web push on iOS needs 16.4+ and home-screen installation, and is less reliable than native. | High | Medium | Set the expectation now (decision D5); in-app reminders as the baseline; native client as a later option rather than a rewrite, since the API is already separate. |
 | R7 | **The score demotivates rather than informs.** | Medium | Medium | Null on unplanned days, component renormalisation, no streak-shaming, breakdown always visible, weights user-configurable. |
 | R8 | **Analytics drift**, where roll-ups and raw data disagree after a bug fix. | Medium | Medium | `daily_summaries` is a cache, never a source of truth; a rebuild command recomputes any range from `activity_status_events` and `domain_events`; a test asserts incremental equals rebuilt. |
 | R9 | **Single developer, ephemeral build environment.** Work is lost if it does not leave the session. | High | High | Every phase committed to GitHub and archived; this file carries the handover state. |
@@ -131,6 +152,7 @@ The alternative, building all the infrastructure first and the experience last, 
 | D5 | **Notifications** | **Accept web push limits. iOS requires 16.4+ and Home Screen installation. In-app reminders are the baseline; a native client stays a later option.** | 2026-08-28 |
 | D6 | **Hosting region** | **London, `aws-eu-west-2`. API and worker co-located in London so the API-to-database hop stays in region.** | 2026-08-28 |
 | D7 | **Version control** | **Scoped fine-grained GitHub token, single repository, Contents and Workflows read/write, short expiry, revoked when the project pauses.** | 2026-08-28 |
+| D8 | **Session ownership** | **The API owns identity. Argon2id passwords, 10-minute EdDSA access tokens, rotating opaque refresh cookie with family reuse detection, sessions in `auth_sessions`. Google sign-in via OIDC in Phase 3, landing in the same session row. Not Auth.js.** | 2026-08-29 |
 
 ### Consequences of D4 for the auth design
 
@@ -138,6 +160,12 @@ Path-based routing on one host removes the parent-domain cookie, and simplifies 
 
 Moving to subdomains later means changing the cookie `Domain` attribute, the CORS allowlist and the deploy configuration. It is a configuration change, not a redesign, which is why deferring costs nothing.
 
+### Why D8 went the way it did
+
+Auth.js is strongest at OAuth. The moment email and password enters the picture its Credentials provider forces the JWT session strategy, database sessions are not supported, and with no server-side session row there is nothing to revoke: no sign-out-everywhere, no device list, no reuse detection, and a password change leaves other sessions alive. Auth.js also does not hash passwords, register users, or handle reset and verification, so that code gets written either way.
+
+The cost of D8 is that the auth layer is written rather than imported. It is contained by where it sits: Phase 3 does not close until an integration test proves that a reused refresh token revokes the whole family and that cross-account access returns 404, and Phase 14 audits the same surface again.
+
 ### Still open
 
-1. **Auth model.** Confirm the API-owned JWT plus rotating refresh cookie, or keep Auth.js literally and accept one app hosting identity. This is the only item still blocking Phase 2 design; Phase 2 scaffolding itself can start without it.
+Nothing blocking. Remaining decisions (domain name, native client) are scheduled at the phases that need them.

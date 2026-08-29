@@ -1,0 +1,85 @@
+/*
+ * Design tokens, shared by both apps.
+ *
+ * Both themes are defined here as token values. Components read the tokens and
+ * never define a colour inside a media query, so a page cannot end up with one
+ * theme's text on the other theme's background.
+ */
+:root {
+  --db-bg: #f4f5f8;
+  --db-surface: #ffffff;
+  --db-surface-2: #eceef3;
+  --db-ink: #161922;
+  --db-ink-2: #3a4051;
+  --db-muted: #626a7d;
+  --db-line: #dde1e9;
+  --db-accent: #2f44c8;
+  --db-accent-soft: #e6e9fb;
+
+  /* Activity states. Each has a shape or label counterpart in the components,
+     so completion never depends on colour alone. */
+  --db-state-planned: #626a7d;
+  --db-state-active: #2f44c8;
+  --db-state-completed: #14735a;
+  --db-state-partial: #a2650f;
+  --db-state-skipped: #8b93a5;
+  --db-state-missed: #a93228;
+
+  --db-font-sans: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --db-font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
+
+  --db-space-1: 4px;
+  --db-space-2: 8px;
+  --db-space-3: 12px;
+  --db-space-4: 16px;
+  --db-space-6: 24px;
+  --db-space-8: 32px;
+  --db-radius: 6px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --db-bg: #0d0f14;
+    --db-surface: #151822;
+    --db-surface-2: #1c2029;
+    --db-ink: #e7e9f0;
+    --db-ink-2: #c3c8d6;
+    --db-muted: #939aac;
+    --db-line: #242936;
+    --db-accent: #8b99ff;
+    --db-accent-soft: #1b1f3a;
+    --db-state-planned: #939aac;
+    --db-state-active: #8b99ff;
+    --db-state-completed: #4fbf95;
+    --db-state-partial: #d5a055;
+    --db-state-skipped: #6f7789;
+    --db-state-missed: #e8796d;
+  }
+}
+
+:root[data-theme='dark'] {
+  --db-bg: #0d0f14;
+  --db-surface: #151822;
+  --db-surface-2: #1c2029;
+  --db-ink: #e7e9f0;
+  --db-ink-2: #c3c8d6;
+  --db-muted: #939aac;
+  --db-line: #242936;
+  --db-accent: #8b99ff;
+  --db-accent-soft: #1b1f3a;
+  --db-state-planned: #939aac;
+  --db-state-active: #8b99ff;
+  --db-state-completed: #4fbf95;
+  --db-state-partial: #d5a055;
+  --db-state-skipped: #6f7789;
+  --db-state-missed: #e8796d;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

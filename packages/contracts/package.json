@@ -1,0 +1,15 @@
+{
+  "name": "@daybook/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "build": "echo 'consumed as source by bundlers' && exit 0",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "eslint src"
+  },
+  "dependencies": { "zod": "^3.23.0" },
+  "devDependencies": { "vitest": "^3.0.0" }
+}

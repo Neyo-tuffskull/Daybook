@@ -1,0 +1,22 @@
+# Local development only. Production runs managed Postgres in London.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: daybook
+      POSTGRES_PASSWORD: daybook
+      POSTGRES_DB: daybook_dev
+    ports:
+      - '5432:5432'
+    volumes:
+      - daybook_pgdata:/var/lib/postgresql/data
+      # Extensions and roles, applied on first start of an empty volume.
+      - ./packages/db/migrations/0000_bootstrap/bootstrap.sql:/docker-entrypoint-initdb.d/00-bootstrap.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U daybook -d daybook_dev']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  daybook_pgdata:

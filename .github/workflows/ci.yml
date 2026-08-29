@@ -1,0 +1,121 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PNPM_VERSION: '9.12.0'
+  NODE_VERSION: '22'
+
+jobs:
+  # Runs first and takes seconds. No point spinning up a database to discover
+  # that a secret was committed.
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Needs no install, so it reports the highest-value failure fastest: the
+  # scoring rules and the timezone helper the whole product depends on.
+  domain:
+    name: Domain logic
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '${{ env.NODE_VERSION }}' }
+      - name: Unit tests
+        working-directory: packages/domain
+        run: node --experimental-strip-types --test 'test/*.test.ts'
+
+  schema:
+    name: Database schema
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: daybook
+          POSTGRES_PASSWORD: daybook
+          POSTGRES_DB: daybook_ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U daybook"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PGHOST: localhost
+      PGUSER: daybook
+      PGPASSWORD: daybook
+      PGDATABASE: daybook_ci
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply bootstrap and migrations
+        run: |
+          psql -v ON_ERROR_STOP=1 -f packages/db/migrations/0000_bootstrap/bootstrap.sql
+          for dir in packages/db/migrations/0*/; do
+            [ -f "$dir/migration.sql" ] || continue
+            echo "applying $dir"
+            psql -v ON_ERROR_STOP=1 -f "$dir/migration.sql"
+          done
+      - name: Schema assertions
+        run: psql -v ON_ERROR_STOP=1 -f packages/db/tests/schema_smoke.sql
+      - name: Migrations are re-appliable from scratch
+        run: |
+          psql -v ON_ERROR_STOP=1 -d postgres -c "CREATE DATABASE daybook_ci_replay;"
+          PGDATABASE=daybook_ci_replay psql -v ON_ERROR_STOP=1 \
+            -f packages/db/migrations/0000_bootstrap/bootstrap.sql
+          for dir in packages/db/migrations/0*/; do
+            [ -f "$dir/migration.sql" ] || continue
+            PGDATABASE=daybook_ci_replay psql -v ON_ERROR_STOP=1 -f "$dir/migration.sql"
+          done
+
+  build:
+    name: Lint, typecheck, test, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: '${{ env.PNPM_VERSION }}' }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '${{ env.NODE_VERSION }}'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm format:check
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+
+  e2e:
+    name: End to end
+    runs-on: ubuntu-latest
+    needs: [build, schema]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: '${{ env.PNPM_VERSION }}' }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '${{ env.NODE_VERSION }}'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7

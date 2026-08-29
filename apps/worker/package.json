@@ -1,0 +1,22 @@
+{
+  "name": "@daybook/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch --experimental-strip-types src/main.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/main.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "eslint src"
+  },
+  "dependencies": {
+    "@daybook/contracts": "workspace:*",
+    "@daybook/db": "workspace:*",
+    "@daybook/domain": "workspace:*",
+    "pg-boss": "^10.1.0",
+    "pino": "^9.4.0"
+  },
+  "devDependencies": { "vitest": "^3.0.0" }
+}

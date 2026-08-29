@@ -1,0 +1,39 @@
+// Daybook database client.
+//
+// SQL-first, on purpose. The migrations in packages/db/migrations are
+// hand-written SQL and are the source of truth, because the schema depends on
+// four things Prisma cannot express:
+//
+//   * partial unique indexes  (UNIQUE ... WHERE deleted_at IS NULL)
+//   * generated columns       (planned_duration_minutes, start_deviation_minutes)
+//   * row-level security      (the tenant isolation policies)
+//   * triggers                (updated_at, IANA timezone validation)
+//
+// Letting Prisma own the DDL would mean losing all four, or bolting them on in
+// a manual step after every generated migration, which drifts. So the flow is:
+//
+//   1. edit the SQL migration
+//   2. apply it            pnpm db:migrate
+//   3. regenerate models   pnpm --filter @daybook/db db:pull
+//   4. regenerate client   pnpm --filter @daybook/db build
+//
+// Step 3 introspects the live database and rewrites the model blocks below, so
+// the models cannot drift from the schema by hand. CI runs `prisma migrate diff`
+// against a fresh database and fails if the committed models and the committed
+// SQL disagree.
+//
+// The model blocks are intentionally absent from this file until `db:pull` has
+// been run on a first checkout. That is not an omission: a hand-written copy
+// would be a second source of truth for the same tables.
+
+generator client {
+  provider        = "prisma-client-js"
+  output          = "../generated/client"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [citext, pgcrypto]
+}
