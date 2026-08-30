@@ -1,6 +1,6 @@
 # Setup and Development
 
-**Phase 2 status: partially verified.** Read §5 before trusting anything here.
+**Phase 2 complete.** Verified end to end on Windows 11 / Node 26 against PostgreSQL 16 in London. §5 has the precise accounting.
 
 ---
 
@@ -8,8 +8,8 @@
 
 | Tool | Version | Why |
 |---|---|---|
-| Node | 22.6 or later | The domain tests use the built-in test runner and native TypeScript stripping |
-| pnpm | 9.x | Workspaces. `corepack enable` will install it |
+| Node | 22.18 or later | The domain tests use the built-in test runner and native TypeScript stripping, which is on by default from 22.18 |
+| pnpm | 9.x | Workspaces. Install with `npm install -g pnpm@9`. Corepack is not bundled with Node from version 25 onward, so `corepack enable` fails there |
 | PostgreSQL | 16 | Generated columns, row-level security, partial indexes |
 | Docker | any recent | Optional, for the local database |
 
@@ -17,7 +17,8 @@
 
 ```bash
 git clone <your repo> daybook && cd daybook
-cp .env.example .env.local        # fill in the blanks, see §3
+cp .env.example .env              # fill in the blanks, see §3
+npm install -g pnpm@9   # corepack is not bundled with Node 25+
 pnpm install
 
 docker compose up -d postgres     # or point at your own PostgreSQL 16
@@ -39,6 +40,74 @@ pnpm dev
 ```
 
 That last command starts four processes: the Daybook app on 3000, the Fitness app on 3001, the API on 4000 and the worker.
+
+## 2b. No local PostgreSQL: use a hosted one
+
+A native PostgreSQL installer is a few hundred megabytes and Docker Desktop is
+larger still. On a slow connection neither is worth it, and you do not need
+either: a free hosted database costs no download, and it is the same managed
+Postgres this project deploys to (decision D6, London).
+
+`psql` is not needed either. The Prisma CLI can execute a SQL file against the
+datasource, which is what the `db:` scripts below use.
+
+1. Create a project on a hosted Postgres provider, choosing **PostgreSQL 16**
+   and the **London (`aws-eu-west-2`)** region. Region is fixed at creation on
+   Neon, so getting it right now saves a migration later.
+2. Copy the connection string it gives you. It arrives as the project owner,
+   which is the role that runs migrations.
+3. Create `.env` in the repository root, from `.env.example`, and set all three
+   database URLs to that owner string for now:
+
+       DATABASE_URL=postgresql://owner:...@...neon.tech/daybook?sslmode=require
+       DATABASE_AUTH_URL=<the same, for now>
+       DATABASE_MIGRATION_URL=<the same>
+
+   `.env`, not `.env.local`: the Prisma CLI reads the former. It lives at the
+   repository root, and the `db:` scripts point Prisma at it explicitly with
+   `dotenv-cli`, because Prisma resolves `.env` relative to the schema or the
+   working directory and does not walk up to a workspace root. Without that,
+   a command run inside `packages/db` cannot see a root `.env` at all.
+
+4. Create the extensions and the two application roles, then the schema, then
+   the application grants:
+
+       pnpm --filter @daybook/db db:bootstrap
+       pnpm --filter @daybook/db db:apply
+       pnpm --filter @daybook/db db:grants
+
+   `db:grants` states the application role's privileges outright and is safe to
+   re-run, so it is also the repair if a grant is ever lost.
+
+5. Prove the schema landed correctly. Fifteen assertions, each of which raises
+   on failure, so a clean exit means every one held:
+
+       pnpm --filter @daybook/db db:smoke
+
+6. Give the two application roles real passwords, then point the URLs at them.
+   Run this from your provider's SQL console:
+
+       ALTER ROLE daybook_app  WITH PASSWORD 'a long random string';
+       ALTER ROLE daybook_auth WITH PASSWORD 'a different long random string';
+
+   Then update `.env` so `DATABASE_URL` uses `daybook_app` and
+   `DATABASE_AUTH_URL` uses `daybook_auth`. This is what makes the isolation in
+   §3 real rather than theoretical: keeping the owner string everywhere would
+   hand the whole application superuser rights and bypass row-level security
+   entirely.
+
+7. Generate the Prisma models from the live schema, then the client:
+
+       pnpm --filter @daybook/db db:pull
+       pnpm --filter @daybook/db build
+
+8. `pnpm dev`.
+
+**The trade-off, stated plainly.** Every query in development crosses the
+internet to London, so the app will feel slower than against a local database,
+and you cannot work on it offline. If that becomes annoying, install PostgreSQL
+16 locally later and change one line in `.env`. Nothing else in the project
+knows the difference.
 
 ## 3. Environment
 
@@ -74,41 +143,61 @@ A single superuser URL for everything would work and would throw away the protec
 | `pnpm lint` | ESLint, including the rule that keeps `packages/domain` framework-free |
 | `pnpm typecheck` | TypeScript, strict, no emit |
 | `pnpm format` | Prettier |
-| `pnpm db:smoke` | The 15 schema assertions |
-| `pnpm --filter @daybook/domain test` | Domain tests alone. Needs no install |
+| `pnpm --filter @daybook/db db:smoke` | The 15 schema assertions, via Prisma, no psql needed |
+| `pnpm --filter @daybook/domain test` | Domain tests alone. Needs no install, no flags, no build step |
 
 That last one is worth knowing: the domain package has no dependencies, so its tests run on a fresh checkout before `pnpm install` finishes.
 
 ## 5. What has actually been verified
 
-The brief's rule 7 says not to claim something works unless it has been tested. Phase 2 was built in an environment with no access to the npm registry, so the install path could not be exercised. Here is the honest split.
+The brief's rule 7 says not to claim something works unless it has been tested.
+This section is that accounting, kept honest rather than optimistic.
 
 ### Verified by running it
 
-| Check | Result |
-|---|---|
-| Bootstrap and migration apply to a clean PostgreSQL 16 | 30 tables, 98 indexes, 152 constraints, 33 policies, 15 triggers |
-| Migrations re-apply from scratch to a second database | Clean |
-| 15 schema assertions | All pass |
-| Domain unit tests, 30 cases | All pass |
-| Every JSON and YAML config parses | Clean |
+| Check | Where | Result |
+|---|---|---|
+| Bootstrap and migration on a clean PostgreSQL 16 | Linux | 30 tables, 98 indexes, 152 constraints, 33 policies, 15 triggers |
+| Migrations re-apply from scratch to a second database | Linux | Clean |
+| 15 schema assertions | Linux | All pass |
+| 30 domain unit tests | Linux, Node 22.22 **and Windows 11, Node 26.4** | All pass |
+| `pnpm install` | Windows 11 | 511 packages |
+| `pnpm typecheck` | Windows 11 | 10 of 10 tasks |
+| `pnpm test` | Windows 11 | 10 of 10 tasks |
+| `pnpm build` | Windows 11 | 5 of 5. Both Next apps compiled and prerendered, `nest build` and the worker compile clean, Prisma client generated |
+| `pnpm lint` | Windows 11 | 10 of 10 tasks |
+| Every JSON and YAML config parses | Linux | Clean |
 
-Two of the schema assertions found real defects while being written: six foreign keys had no index, and three credential tables had no access control. Both are fixed, and both now have a standing test.
+| Bootstrap, schema and grants on managed PostgreSQL 16 (London) | Neon | Applied |
+| 15 schema assertions, run three times in a row | Neon and Linux | 15, 15, 15 |
+| `prisma db pull` | Neon | 30 models introspected |
+| `pnpm dev` and `GET /v1/readyz` | Windows 11 to London | `{"status":"ok","database":"ok"}` as the restricted role |
 
-### Not verified, because nothing could be installed
+### Still not verified
 
-- `pnpm install` and the lockfile it produces
-- `pnpm dev`, `pnpm build`, `pnpm lint`, `pnpm typecheck`
-- The NestJS API booting
-- Either Next.js app rendering
-- `prisma db pull` and client generation
-- Docker Compose
-- The CI workflow
-- Playwright
+- CI on GitHub, which needs a repository to run in
+- Docker Compose, since the local path was not used
+- Playwright, which arrives with the journeys it will test in Phase 9
 
-Dependency versions in the manifests are caret ranges chosen from knowledge, not resolved against the registry. The first `pnpm install` is what pins them, and it may well surface a version that needs adjusting.
+### What the verification actually caught
 
-**Phase 2 stays open until `pnpm install && pnpm dev` runs cleanly on a machine with network access and the exit criterion is met.** Send me whatever breaks.
+Nine defects, each found by running something rather than by reading it.
+
+| # | Defect | Only findable by |
+|---|---|---|
+| 1 | Six foreign keys with no index | Applying the schema |
+| 2 | Three credential tables with no access control | A test that queried as the unprivileged role |
+| 3 | `--experimental-strip-types` removed in Node 26 | A machine running Node 26 |
+| 4 | Corepack not bundled from Node 25 | The same |
+| 5 | `@eslint/js`, `typescript-eslint` and `@types/node` imported but never declared | Installing |
+| 6 | `fastify` imported but never declared | Building under pnpm's isolated linker |
+| 7 | `db` typecheck racing its own `prisma generate` | Running them together |
+| 8 | Two `prisma generate` processes fighting over one DLL | Windows file locking, invisible on Linux |
+| 9 | `require-await` on the placeholder dispatch handler | Linting |
+
+Three of those nine needed Windows, and two needed Node 26. Neither was
+available where the code was written, which is the case for testing on the
+machine the software will actually run on.
 
 ## 6. Troubleshooting
 
@@ -123,3 +212,59 @@ Row-level security with no identity set. Every user-scoped query goes through `a
 
 **`ERROR: invalid IANA timezone`**
 A trigger, not a typo. Timezones are validated on write because a bad zone silently corrupts every occurrence built from it.
+
+**`corepack : The term 'corepack' is not recognized`**
+Node stopped bundling Corepack from version 25. Use `npm install -g pnpm@9` instead; it does the same job here.
+
+**`Invalid environment configuration` from the API on startup**
+It validates everything it needs at boot and refuses to start rather than
+failing later on the first request. The dev scripts load the root `.env`
+through `dotenv-cli`; in preview and production the platform supplies the
+variables directly and no file is involved.
+
+**`permission denied to set role "daybook_app"`**
+The migrating role is not a member of the application roles. A superuser can
+`SET ROLE` into anything; a managed provider's owner role cannot. The bootstrap
+script grants the membership, so re-run `db:bootstrap` against that database.
+
+**`Can't reach database server` on a hosted database, when the host resolves
+and the port accepts TCP**
+Two causes, in order of likelihood. The compute is asleep and the handshake
+outran Prisma's five second default, which `connect_timeout=30` on the URL
+fixes. Or the direct (non-pooled) endpoint is not reachable from your network
+while the pooled one is, in which case use the pooled host: it serves the
+schema work perfectly well.
+
+**`Environment variable not found: DATABASE_URL`**
+Either `.env` does not exist at the repository root yet, or it exists and has
+no value on that line. The `db:` scripts load it through `dotenv-cli`; run them
+from the repository root with `pnpm --filter @daybook/db <script>` rather than
+calling `prisma` directly, which would look for `.env` in the wrong place.
+
+**`Cannot find module '../generated/client/index.js'` in @daybook/db**
+The Prisma client has not been generated. `pnpm --filter @daybook/db build`
+does it, and it reads only the schema file, so no database needs to be running.
+`pnpm typecheck` from the root orders this for you; running `tsc` inside the
+package directly does not.
+
+**`EPERM: operation not permitted, rename ... query_engine-windows.dll.node.tmp`**
+Two `prisma generate` runs writing the engine binary at the same time. Windows
+locks a file that is open; Linux and macOS would silently tolerate it. Only
+`build` may generate, and `packages/db/turbo.json` orders `typecheck` after it.
+If you hit this after adding a script, check that nothing else calls
+`prisma generate`.
+
+**`ECONNRESET`, `socket hang up`, or `ERR_PNPM_META_FETCH_FAIL` during install**
+A connection problem, not a dependency problem. `.npmrc` already lowers
+`network-concurrency` to 4 and raises the retry budget, which is what makes a
+first install survive a domestic or mobile link. If it still dies, just run
+`pnpm install` again: pnpm caches every package it has already fetched, so each
+attempt resumes rather than restarting. Installing the heavy packages on their
+own first also helps:
+
+    pnpm install --filter @daybook/db
+    pnpm install --filter @daybook/api
+    pnpm install
+
+**`bad option: --experimental-strip-types`**
+That flag was removed in Node 26, because type stripping became the default and then stable. Run `node --test 'test/*.test.ts'` with no flag. If you are on a Node older than 22.18, upgrade rather than adding the flag back.

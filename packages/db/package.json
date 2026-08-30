@@ -8,19 +8,25 @@
   },
   "scripts": {
     "build": "prisma generate",
-    "typecheck": "tsc --noEmit",
-    "test": "echo 'schema tests run via pnpm db:smoke against a live database' && exit 0",
+    "db:apply": "dotenv -e ../../.env -- prisma db execute --schema prisma/schema.prisma --file migrations/0001_init/migration.sql",
+    "db:bootstrap": "dotenv -e ../../.env -- prisma db execute --schema prisma/schema.prisma --file migrations/0000_bootstrap/bootstrap.sql",
+    "db:diff": "dotenv -e ../../.env -- prisma migrate diff --from-schema-datasource prisma/schema.prisma --to-schema-datamodel prisma/schema.prisma --exit-code",
+    "db:grants": "dotenv -e ../../.env -- prisma db execute --schema prisma/schema.prisma --file migrations/0002_app_grants/migration.sql",
+    "db:pull": "dotenv -e ../../.env -- prisma db pull && prisma format",
+    "db:smoke": "dotenv -e ../../.env -- prisma db execute --schema prisma/schema.prisma --file tests/schema_smoke.sql",
     "lint": "eslint src",
-    "migrate:dev": "prisma migrate dev",
-    "migrate:deploy": "prisma migrate deploy",
-    "studio": "prisma studio",
-    "db:pull": "prisma db pull && prisma format",
-    "db:diff": "prisma migrate diff --from-schema-datasource prisma/schema.prisma --to-schema-datamodel prisma/schema.prisma --exit-code"
+    "migrate:deploy": "dotenv -e ../../.env -- prisma migrate deploy",
+    "migrate:dev": "dotenv -e ../../.env -- prisma migrate dev",
+    "studio": "dotenv -e ../../.env -- prisma studio",
+    "test": "echo 'schema tests run via pnpm db:smoke against a live database' && exit 0",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@prisma/client": "^6.1.0"
   },
   "devDependencies": {
+    "@types/node": "^22.10.0",
+    "dotenv-cli": "^8.0.0",
     "prisma": "^6.1.0"
   }
 }

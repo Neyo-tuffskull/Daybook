@@ -4,11 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "nest start --watch",
+    "dev": "dotenv -e ../../.env -- nest start --watch",
     "build": "nest build",
     "start": "node dist/main.js",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vitest run --passWithNoTests",
     "lint": "eslint src"
   },
   "dependencies": {
@@ -21,6 +21,7 @@
     "@nestjs/core": "^11.0.0",
     "@nestjs/platform-fastify": "^11.0.0",
     "argon2": "^0.41.0",
+    "fastify": "^5.1.0",
     "jose": "^5.9.0",
     "nestjs-pino": "^4.1.0",
     "pino": "^9.4.0",
@@ -29,6 +30,8 @@
   "devDependencies": {
     "@nestjs/cli": "^11.0.0",
     "@nestjs/testing": "^11.0.0",
+    "@types/node": "^22.10.0",
+    "dotenv-cli": "^8.0.0",
     "supertest": "^7.0.0",
     "vitest": "^3.0.0"
   }

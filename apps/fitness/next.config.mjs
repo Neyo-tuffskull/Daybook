@@ -7,6 +7,7 @@ const nextConfig = {
   // cookie Domain instead.
   basePath: '/fit',
   transpilePackages: ['@daybook/ui', '@daybook/domain', '@daybook/contracts'],
-  experimental: { typedRoutes: true },
+  // Promoted out of experimental in Next 15.5.
+  typedRoutes: true,
 };
 export default nextConfig;

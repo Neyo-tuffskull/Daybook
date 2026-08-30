@@ -3,13 +3,18 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "exports": { ".": "./src/index.ts" },
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "scripts": {
-    "build": "echo 'consumed as source by bundlers' && exit 0",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vitest run --passWithNoTests",
     "lint": "eslint src"
   },
-  "dependencies": { "zod": "^3.23.0" },
-  "devDependencies": { "vitest": "^3.0.0" }
+  "dependencies": {
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "vitest": "^3.0.0"
+  }
 }

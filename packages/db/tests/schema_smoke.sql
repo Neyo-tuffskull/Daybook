@@ -1,13 +1,23 @@
 -- Schema smoke tests. Every block raises on failure, so a clean run means
 -- every assertion held. Run against a freshly migrated database:
 --   psql -v ON_ERROR_STOP=1 -d daybook_dev -f packages/db/tests/schema_smoke.sql
-
-\set ON_ERROR_STOP on
-\timing off
+--
+-- Or, with no psql installed, through the Prisma CLI:
+--   pnpm --filter @daybook/db db:smoke
+--
+-- Deliberately free of psql backslash directives so both paths work. Every
+-- assertion raises on failure, so a clean exit means they all held; psql also
+-- prints an "ok N" notice per assertion, which Prisma does not surface.
 
 -- ---------------------------------------------------------------------------
 -- Fixtures
 -- ---------------------------------------------------------------------------
+-- Cleared first and again at the end, so the file can be run repeatedly
+-- against the same database and leaves nothing behind. A test suite that only
+-- works on a virgin database is a test suite people stop running.
+
+DELETE FROM users WHERE email IN ('ada@example.com', 'grace@example.com');
+DELETE FROM activity_categories WHERE id = '33333333-3333-3333-3333-333333333333';
 
 INSERT INTO users (id, email, password_hash)
 VALUES ('11111111-1111-1111-1111-111111111111', 'ada@example.com', 'argon2-placeholder'),
@@ -308,8 +318,9 @@ END $$;
 -- ---------------------------------------------------------------------------
 -- The previous checks confirm the policies exist. This one confirms they work,
 -- by querying as the unprivileged application role rather than as the owner,
--- who bypasses row-level security.
-GRANT SELECT ON activities, users TO daybook_app;
+-- who bypasses row-level security. It relies on the grants from migration 0002
+-- rather than granting anything itself: a test that alters permissions can
+-- leave the system less secure than it found it.
 SET ROLE daybook_app;
 -- Session scope, not SET LOCAL: psql runs each statement in its own implicit
 -- transaction, so a LOCAL setting would be discarded before the next one.
@@ -339,3 +350,9 @@ BEGIN
 END $$;
 
 RESET ROLE;
+
+-- ---------------------------------------------------------------------------
+-- Leave nothing behind
+-- ---------------------------------------------------------------------------
+DELETE FROM users WHERE email IN ('ada@example.com', 'grace@example.com');
+DELETE FROM activity_categories WHERE id = '33333333-3333-3333-3333-333333333333';

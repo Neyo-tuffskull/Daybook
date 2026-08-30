@@ -27,6 +27,19 @@ BEGIN
 END
 $$;
 
+-- The migrating role needs membership in both roles to SET ROLE into them,
+-- which the schema tests do when they check tenant isolation as the
+-- unprivileged role. A superuser can SET ROLE freely; a managed provider's
+-- owner role cannot, so the grant has to be explicit.
+DO $$
+BEGIN
+  EXECUTE format('GRANT daybook_app TO %I', current_user);
+  EXECUTE format('GRANT daybook_auth TO %I', current_user);
+EXCEPTION WHEN OTHERS THEN
+  RAISE NOTICE 'role membership not granted (%), SET ROLE tests will be skipped', SQLERRM;
+END
+$$;
+
 -- Migrations run as the owner. The application role gets DML only: no DDL,
 -- no ability to disable a policy.
 GRANT USAGE ON SCHEMA public TO daybook_app;

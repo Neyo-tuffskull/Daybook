@@ -8,9 +8,11 @@ A personal planning and performance system: a daily planner that knows what you 
 
 ## Current state
 
-**Phase 1 complete and signed off. Phase 2 partially complete.**
+**Phases 1 and 2 complete. Phase 3, authentication, is next.**
 
-The database and the shared business logic are built and verified against a live PostgreSQL 16: schema, row-level security, 15 schema assertions, 30 domain unit tests. The workspace, API, worker and both frontends are scaffolded but unverified, because the build environment had no access to the npm registry. [docs/SETUP.md](docs/SETUP.md) section 5 has the exact split between what was proved and what was only written.
+The foundation runs: two Next.js apps, a NestJS API, a background worker and a 30-table PostgreSQL schema with row-level security, verified end to end against managed Postgres in London. `GET /v1/readyz` returns ok connecting as the restricted application role. Install, typecheck, test, build and lint are all green.
+
+Twelve defects were found and fixed getting there, every one of them by running something rather than reading it. [docs/SETUP.md](docs/SETUP.md) section 5 lists them and what each one needed to be caught.
 
 Getting started: [docs/SETUP.md](docs/SETUP.md).
 
@@ -44,7 +46,7 @@ e2e/        Playwright, desktop and mobile
 `packages/domain` is the one to understand first. Recurrence, scoring, streaks and planned-versus-actual live there as pure functions with no framework imports, enforced by a lint rule. That boundary is what lets the same scoring code run on the server and in an offline browser without the two drifting apart. It also has no dependencies, so its tests run before `pnpm install` finishes:
 
 ```bash
-cd packages/domain && node --experimental-strip-types --test 'test/*.test.ts'
+cd packages/domain && node --test 'test/*.test.ts'
 ```
 
 ## Decisions

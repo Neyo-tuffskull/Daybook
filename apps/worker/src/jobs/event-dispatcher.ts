@@ -20,10 +20,14 @@ export function nextDelaySeconds(attempt: number): number {
 
 export async function registerEventDispatcher(boss: PgBoss, log: Logger): Promise<void> {
   await boss.createQueue(EVENT_DISPATCH_QUEUE);
+
+  // pg-boss requires a promise-returning handler, and this one has nothing to
+  // await until Phase 9 gives it a body: claim pending rows from
+  // event_deliveries with FOR UPDATE SKIP LOCKED, run the projector, mark them
+  // delivered. Handlers will set absolute state rather than applying deltas,
+  // which is what makes a redelivery harmless.
+  // eslint-disable-next-line @typescript-eslint/require-await
   await boss.work(EVENT_DISPATCH_QUEUE, { batchSize: 10 }, async (jobs) => {
-    // Phase 9: claim pending rows from event_deliveries with FOR UPDATE SKIP
-    // LOCKED, run the projector, mark delivered. Handlers set absolute state
-    // rather than applying deltas, which is what makes a redelivery harmless.
     log.debug({ count: jobs.length }, 'event dispatch tick (no handlers yet)');
   });
 }

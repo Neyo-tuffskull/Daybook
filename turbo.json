@@ -5,11 +5,11 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "outputs": [".next/**", "!.next/cache/**", "dist/**"]
+      "outputs": [".next/**", "!.next/cache/**", "dist/**", "generated/**"]
     },
     "dev": { "cache": false, "persistent": true },
     "lint": { "dependsOn": ["^build"] },
     "typecheck": { "dependsOn": ["^build"] },
-    "test": { "dependsOn": ["^build"], "outputs": ["coverage/**"] }
+    "test": { "dependsOn": ["^build"] }
   }
 }

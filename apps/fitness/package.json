@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start --port 3001",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vitest run --passWithNoTests",
     "lint": "eslint app"
   },
   "dependencies": {

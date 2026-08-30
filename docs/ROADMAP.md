@@ -1,7 +1,7 @@
 # Development Roadmap, Risks and Phase State
 
-**Status:** Phase 1 signed off, Phase 2 in progress
-**Last updated:** 2026-08-29
+**Status:** Phases 1 and 2 complete. Phase 3 ready to start.
+**Last updated:** 2026-08-30
 
 This file is the session-to-session handover. Any future session should read it first to know exactly where the build stopped.
 
@@ -13,8 +13,8 @@ This file is the session-to-session handover. Any future session should read it 
 |---|---|---|---|
 | 0 | Project discovery | **complete** | Green field. Nothing existed. Toolchain verified. |
 | 1 | Architecture | **complete, signed off** | Documentation set complete. All eight decisions closed. |
-| 2 | Project foundation | **partially complete** | Database and domain layers verified against a live PostgreSQL 16. Install path unverified: the build environment had no npm registry access. See docs/SETUP.md section 5. |
-| 3 | Authentication | not started | |
+| 2 | Project foundation | **complete** | Verified end to end on Windows 11 / Node 26 against managed PostgreSQL 16 in London. `/v1/readyz` returns ok as the restricted role. Only the CI clause is untested, pending a repository. |
+| 3 | Authentication | **ready to start** | |
 | 4 | Daybook core | not started | |
 | 5 | Recurring schedules | not started | |
 | 6 | Habits | not started | |
@@ -39,14 +39,14 @@ Each phase has an exit criterion. A phase is not "done" because the code exists;
 ### Phase 2: Foundation
 Turborepo, pnpm workspaces, four apps and five packages scaffolded, PostgreSQL running locally, the schema applied, ESLint and Prettier and TypeScript strict mode, test runners wired, GitHub Actions, Docker Compose, `.env.example` documented.
 
-**Exit criterion:** `pnpm install && pnpm dev` brings up both frontends, the API and the database on one machine, `pnpm test` passes, and CI is green on a pull request. **Not yet met.**
+**Exit criterion:** `pnpm install && pnpm dev` brings up both frontends, the API and the database on one machine, `pnpm test` passes, and CI is green on a pull request. **Met, apart from the CI clause.**
 
 **Done and proved (2026-08-29):**
 
 - Bootstrap and initial migration apply to a clean PostgreSQL 16: 30 tables, 98 indexes, 152 constraints, 33 row-level security policies, 15 triggers
 - Migrations re-apply from scratch to a second database
 - 15 schema assertions pass, covering generated columns, partial unique indexes, the four sync idempotency guards, cascade deletes, foreign-key index coverage and live tenant isolation queried as the unprivileged role
-- 30 domain unit tests pass, including daylight-saving transitions in both directions and the documented scoring examples
+- 30 domain unit tests pass, including daylight-saving transitions in both directions and the documented scoring examples. Re-run independently on Windows 11 with Node 26.4 on 2026-08-30: 30/30, 243ms
 - Every JSON and YAML config parses
 
 **Two defects the schema tests caught while being written:**
@@ -56,7 +56,46 @@ Turborepo, pnpm workspaces, four apps and five packages scaffolded, PostgreSQL r
 
 **Not done, blocked on network access:** `pnpm install` was impossible in the build environment (npm registry refused at the network layer), so the install, build, lint, typecheck, Next.js render, NestJS boot, Prisma generate, Docker Compose, CI and Playwright paths are all unverified. Dependency versions are caret ranges chosen from knowledge rather than resolved against the registry.
 
-**To close this phase:** run `pnpm install && pnpm dev` on a machine with network access and report failures.
+**Found on real hardware (2026-08-30), Node 26.4 on Windows:**
+
+Two scaffold defects that the build container could not have surfaced, because it ran Node 22.
+
+1. `--experimental-strip-types` was removed in Node 26. Type stripping became the default in 22.18 and stable in 24.12, so the flag is gone and every domain test would have failed on an unknown option. Dropped from the scripts and from CI; `engines` raised to `>=22.18.0`.
+2. Node stopped bundling Corepack from version 25, so `corepack enable` fails. Setup now uses `npm install -g pnpm@9`.
+
+Both are in the troubleshooting section of docs/SETUP.md.
+
+**Verified on the product owner's machine, Windows 11 with Node 26.4 (2026-08-30):**
+
+`pnpm install` (511 packages), `pnpm typecheck` (10/10), `pnpm test` (10/10),
+`pnpm build` (5/5, both Next apps compiled and prerendered), `pnpm lint`
+(10/10). Nine defects were found and fixed along the way, listed in
+docs/SETUP.md section 5. Three of them were only reachable on Windows and two
+only on Node 26.
+
+**Exit criterion met (2026-08-30).** Against a managed PostgreSQL 16 in London:
+bootstrap, schema and grants applied; 15 schema assertions passing, three runs
+in a row; `prisma db pull` introspected all 30 models; `pnpm dev` brought the
+stack up and `GET /v1/readyz` returned `{"status":"ok","database":"ok"}`
+connecting as `daybook_app`, the role that owns nothing and cannot read the
+credential tables.
+
+The one clause not yet satisfied is "CI is green on a pull request", which
+needs a GitHub repository to run in. Everything CI would execute has been run
+locally and passes.
+
+**Three further defects found once a managed database was involved,** none of
+which a local superuser install could have surfaced:
+
+10. The owner role on a managed provider cannot `SET ROLE` into a role it does
+    not belong to, so the tenant-isolation assertion failed. Bootstrap now
+    grants membership explicitly.
+11. The schema tests assumed a virgin database and could not run twice. They
+    now clear their fixtures before and after.
+12. The tests' cleanup revoked a privilege that came from the bootstrap rather
+    than from the tests, quietly removing the application role's access to
+    `activities` and `users` on every run. Grants moved to migration 0002,
+    stated outright and idempotent; the tests no longer touch permissions.
 
 ### Decision: SQL-first migrations
 

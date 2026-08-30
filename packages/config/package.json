@@ -3,9 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "exports": { "./tsconfig.base.json": "../../tsconfig.base.json" },
+  "exports": {
+    "./tsconfig.base.json": "../../tsconfig.base.json"
+  },
   "scripts": {
-    "build": "echo 'config only' && exit 0",
     "typecheck": "echo 'config only' && exit 0",
     "test": "echo 'config only' && exit 0",
     "lint": "echo 'config only' && exit 0"

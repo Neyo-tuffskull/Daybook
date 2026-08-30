@@ -9,9 +9,9 @@ server and in an offline browser without drifting apart.
 
 ## Tests
 
-    node --experimental-strip-types --test 'test/*.test.ts'
+    node --test 'test/*.test.ts'
 
-Node's own test runner, not Vitest. These are pure functions over plain data,
+Node's own test runner, not Vitest. Type stripping is built in and on by default from Node 22.18, so there is no flag and no build step. These are pure functions over plain data,
 so they need no DOM, no mocking and no dependencies, which means they run on a
 clean checkout before `pnpm install` has finished. Vitest is still used in the
 packages that need a DOM.

@@ -1,6 +1,15 @@
-import { PrismaClient } from '../generated/client/index.js';
+import { PrismaClient, type Prisma } from '../generated/client/index.js';
 
-export type { PrismaClient };
+export type { PrismaClient, Prisma };
+
+/**
+ * This module imports from `../generated/client`, which does not exist on a
+ * fresh checkout. Run `pnpm --filter @daybook/db build` (that is
+ * `prisma generate`) before typechecking. Turbo enforces the ordering, so
+ * `pnpm typecheck` from the root handles it for you.
+ *
+ * Generation reads only the schema file, so it needs no running database.
+ */
 
 /**
  * Two clients, two roles, on purpose.
@@ -20,6 +29,8 @@ export const authDb = new PrismaClient({
   datasources: { db: { url: process.env.DATABASE_AUTH_URL } },
 });
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * Runs a callback inside a transaction that carries the caller's identity, so
  * the row-level security policies apply.
@@ -32,18 +43,20 @@ export const authDb = new PrismaClient({
  */
 export async function asUser<T>(
   userId: string,
-  work: (tx: Omit<PrismaClient, '$connect' | '$disconnect' | '$transaction'>) => Promise<T>,
+  work: (tx: Prisma.TransactionClient) => Promise<T>,
 ): Promise<T> {
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) {
+  // Guarding the shape here matters: the value is interpolated into a
+  // set_config call, and a UUID check is a cheap, total defence.
+  if (!UUID.test(userId)) {
     throw new Error('asUser requires a UUID');
   }
-  return db.$transaction(async (tx) => {
-    await tx.$executeRawUnsafe("SELECT set_config('app.current_user_id', $1, true)", userId);
+  return db.$transaction(async (tx: Prisma.TransactionClient) => {
+    await tx.$executeRaw`SELECT set_config('app.current_user_id', ${userId}, true)`;
     return work(tx);
   });
 }
 
-/** Liveness probe for /readyz. */
+/** Readiness probe for /readyz. */
 export async function pingDatabase(): Promise<boolean> {
   try {
     await db.$queryRaw`SELECT 1`;

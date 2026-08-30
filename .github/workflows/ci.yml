@@ -10,8 +10,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  PNPM_VERSION: '9.12.0'
-  NODE_VERSION: '22'
+  PNPM_VERSION: '9.15.9'
+  NODE_VERSION: '24'
 
 jobs:
   # Runs first and takes seconds. No point spinning up a database to discover
@@ -37,7 +37,7 @@ jobs:
         with: { node-version: '${{ env.NODE_VERSION }}' }
       - name: Unit tests
         working-directory: packages/domain
-        run: node --experimental-strip-types --test 'test/*.test.ts'
+        run: node --test 'test/*.test.ts'
 
   schema:
     name: Database schema

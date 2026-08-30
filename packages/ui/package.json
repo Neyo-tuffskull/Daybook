@@ -3,12 +3,21 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "exports": { ".": "./src/index.ts", "./tokens.css": "./src/tokens.css" },
+  "exports": {
+    ".": "./src/index.ts",
+    "./tokens.css": "./src/tokens.css"
+  },
   "scripts": {
-    "build": "echo 'consumed as source by bundlers' && exit 0",
     "typecheck": "tsc --noEmit",
     "test": "echo 'no tests yet' && exit 0",
     "lint": "eslint src"
   },
-  "peerDependencies": { "react": "^19.0.0", "react-dom": "^19.0.0" }
+  "peerDependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "react": "^19.0.0"
+  }
 }
