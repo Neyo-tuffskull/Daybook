@@ -98,23 +98,14 @@ jobs:
       - run: pnpm test
       - run: pnpm build
 
-  e2e:
-    name: End to end
-    runs-on: ubuntu-latest
-    needs: [build, schema]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '${{ env.NODE_VERSION }}'
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm exec playwright install --with-deps chromium
-      - run: pnpm test:e2e
-      - uses: actions/upload-artifact@v4
-        if: failure()
-        with:
-          name: playwright-report
-          path: playwright-report/
-          retention-days: 7
+  # The end-to-end job is deliberately absent until Phase 9.
+  #
+  # Playwright drives `pnpm dev`, which needs a database and a populated .env.
+  # Wiring those into CI now would only prove that a placeholder page renders,
+  # while making every run slower and giving a red tick that means nothing. A
+  # check people learn to ignore is worse than no check.
+  #
+  # It returns with the journeys it exists to test: complete a workout in the
+  # Fitness app, watch the Daybook timeline update, and the offline replay that
+  # must not produce a duplicate. The Playwright config and e2e/smoke.spec.ts
+  # stay in the repository and run locally with `pnpm test:e2e`.

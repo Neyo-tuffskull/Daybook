@@ -9,26 +9,26 @@ This file is the session-to-session handover. Any future session should read it 
 
 ## 1. Phase state
 
-| Phase | Name                          | State                    | Notes                                                                                                                                                                                      |
-| ----- | ----------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 0     | Project discovery             | **complete**             | Green field. Nothing existed. Toolchain verified.                                                                                                                                          |
-| 1     | Architecture                  | **complete, signed off** | Documentation set complete. All eight decisions closed.                                                                                                                                    |
-| 2     | Project foundation            | **complete**             | Verified end to end on Windows 11 / Node 26 against managed PostgreSQL 16 in London. `/v1/readyz` returns ok as the restricted role. Only the CI clause is untested, pending a repository. |
-| 3     | Authentication                | **ready to start**       |                                                                                                                                                                                            |
-| 4     | Daybook core                  | not started              |                                                                                                                                                                                            |
-| 5     | Recurring schedules           | not started              |                                                                                                                                                                                            |
-| 6     | Habits                        | not started              |                                                                                                                                                                                            |
-| 7     | Journal                       | not started              |                                                                                                                                                                                            |
-| 8     | Fitness app                   | not started              |                                                                                                                                                                                            |
-| 9     | Daybook / Fitness integration | not started              |                                                                                                                                                                                            |
-| 10    | Analytics                     | not started              |                                                                                                                                                                                            |
-| 11    | Notifications                 | not started              |                                                                                                                                                                                            |
-| 12    | Offline support               | not started              |                                                                                                                                                                                            |
-| 13    | UI/UX polish                  | not started              |                                                                                                                                                                                            |
-| 14    | Security audit                | not started              |                                                                                                                                                                                            |
-| 15    | Testing                       | not started              |                                                                                                                                                                                            |
-| 16    | Deployment                    | not started              |                                                                                                                                                                                            |
-| 17    | Final audit                   | not started              |                                                                                                                                                                                            |
+| Phase | Name                          | State                    | Notes                                                                                                                                                            |
+| ----- | ----------------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0     | Project discovery             | **complete**             | Green field. Nothing existed. Toolchain verified.                                                                                                                |
+| 1     | Architecture                  | **complete, signed off** | Documentation set complete. All eight decisions closed.                                                                                                          |
+| 2     | Project foundation            | **complete**             | Verified end to end on Windows 11 / Node 26 against managed PostgreSQL 16 in London. `/v1/readyz` returns ok as the restricted role. CI green on GitHub Actions. |
+| 3     | Authentication                | **ready to start**       |                                                                                                                                                                  |
+| 4     | Daybook core                  | not started              |                                                                                                                                                                  |
+| 5     | Recurring schedules           | not started              |                                                                                                                                                                  |
+| 6     | Habits                        | not started              |                                                                                                                                                                  |
+| 7     | Journal                       | not started              |                                                                                                                                                                  |
+| 8     | Fitness app                   | not started              |                                                                                                                                                                  |
+| 9     | Daybook / Fitness integration | not started              |                                                                                                                                                                  |
+| 10    | Analytics                     | not started              |                                                                                                                                                                  |
+| 11    | Notifications                 | not started              |                                                                                                                                                                  |
+| 12    | Offline support               | not started              |                                                                                                                                                                  |
+| 13    | UI/UX polish                  | not started              |                                                                                                                                                                  |
+| 14    | Security audit                | not started              |                                                                                                                                                                  |
+| 15    | Testing                       | not started              |                                                                                                                                                                  |
+| 16    | Deployment                    | not started              |                                                                                                                                                                  |
+| 17    | Final audit                   | not started              |                                                                                                                                                                  |
 
 ---
 
@@ -40,7 +40,7 @@ Each phase has an exit criterion. A phase is not "done" because the code exists;
 
 Turborepo, pnpm workspaces, four apps and five packages scaffolded, PostgreSQL running locally, the schema applied, ESLint and Prettier and TypeScript strict mode, test runners wired, GitHub Actions, Docker Compose, `.env.example` documented.
 
-**Exit criterion:** `pnpm install && pnpm dev` brings up both frontends, the API and the database on one machine, `pnpm test` passes, and CI is green on a pull request. **Met, apart from the CI clause.**
+**Exit criterion:** `pnpm install && pnpm dev` brings up both frontends, the API and the database on one machine, `pnpm test` passes, and CI is green on a pull request. **Met.**
 
 **Done and proved (2026-08-29):**
 
@@ -81,9 +81,15 @@ stack up and `GET /v1/readyz` returned `{"status":"ok","database":"ok"}`
 connecting as `daybook_app`, the role that owns nothing and cannot read the
 credential tables.
 
-The one clause not yet satisfied is "CI is green on a pull request", which
-needs a GitHub repository to run in. Everything CI would execute has been run
-locally and passes.
+**CI green (2026-08-30).** Four jobs pass on GitHub Actions: secret scan,
+domain logic (30 tests on Node 24, a third platform), database schema (a clean
+PostgreSQL 16, all three migrations, 15 assertions, then a full replay into a
+second database), and lint/typecheck/test/build.
+
+The end-to-end job was removed rather than fixed: it drives `pnpm dev`, which
+needs a database and a populated `.env`. Supplying those to CI now would prove
+only that a placeholder page renders. It returns in Phase 9 with the sync
+journeys it exists to test.
 
 **Three further defects found once a managed database was involved,** none of
 which a local superuser install could have surfaced:
@@ -97,6 +103,21 @@ which a local superuser install could have surfaced:
     than from the tests, quietly removing the application role's access to
     `activities` and `users` on every run. Grants moved to migration 0002,
     stated outright and idempotent; the tests no longer touch permissions.
+
+**Four more found by CI itself,** none reachable on a machine that had already
+built the project once:
+
+13. Gitleaks read the pnpm lockfile's sha512 integrity hashes as secrets.
+    Allowlisted in `.gitleaks.toml`; real credentials still fail the build.
+14. Prettier had never been run over any file, since all of them were written
+    by hand. `pnpm format` reformatted 17.
+15. `pnpm/action-setup` refuses to run when the version is given both in
+    `package.json`'s `packageManager` field and as an action input, even when
+    they agree.
+16. `packages/db` lint raced its own `prisma generate`, so every Prisma type
+    resolved to `error` and the type-aware rules reported twelve failures. The
+    package-level turbo config ordered `typecheck` after `build` but not
+    `lint`. Invisible locally, where `generated/` survives from an earlier run.
 
 ### Decision: SQL-first migrations
 
