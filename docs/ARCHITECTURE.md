@@ -16,16 +16,16 @@ Nothing in this document is implemented yet. It exists so that architectural mis
 
 ## 2. Product owner decisions already made
 
-| Decision | Choice |
-|---|---|
-| Platform | Web-first, installable PWA, mobile-ready |
-| Authentication hosting | Self-hosted, own PostgreSQL, no identity vendor |
-| Code delivery | GitHub repository plus a per-phase archive |
-| Session scope | Phase 1 architecture only, no application code |
-| Routing | Path-based on one host (`/plan`, `/fit`). No domain yet, revisit at Phase 16 |
-| Notifications | Web push accepted with its iOS limits; in-app reminders are the baseline |
-| Hosting region | London, `aws-eu-west-2`, API and worker co-located |
-| Version control | Scoped fine-grained GitHub token, single repository |
+| Decision               | Choice                                                                       |
+| ---------------------- | ---------------------------------------------------------------------------- |
+| Platform               | Web-first, installable PWA, mobile-ready                                     |
+| Authentication hosting | Self-hosted, own PostgreSQL, no identity vendor                              |
+| Code delivery          | GitHub repository plus a per-phase archive                                   |
+| Session scope          | Phase 1 architecture only, no application code                               |
+| Routing                | Path-based on one host (`/plan`, `/fit`). No domain yet, revisit at Phase 16 |
+| Notifications          | Web push accepted with its iOS limits; in-app reminders are the baseline     |
+| Hosting region         | London, `aws-eu-west-2`, API and worker co-located                           |
+| Version control        | Scoped fine-grained GitHub token, single repository                          |
 
 ---
 
@@ -33,26 +33,26 @@ Nothing in this document is implemented yet. It exists so that architectural mis
 
 ### 3.1 Recommendation summary
 
-| Layer | Choice | Version target |
-|---|---|---|
-| Monorepo | Turborepo + pnpm workspaces | Turborepo 2.x, pnpm 9.x |
-| Frontends | Next.js App Router + React + TypeScript | Next 15, React 19, TS 5.6 |
-| Styling | Tailwind CSS + a small in-house component library on Radix primitives | Tailwind 4 |
-| Data fetching | TanStack Query + a generated typed client | v5 |
-| Backend | NestJS on the Fastify adapter, TypeScript | Nest 11 |
-| Validation / contracts | Zod schemas in a shared package, OpenAPI generated from them | Zod 3 |
-| Database | PostgreSQL | 16 |
-| ORM / migrations | Prisma | 6 |
-| Background jobs | pg-boss (job queue inside PostgreSQL) | 10 |
-| Auth | API-issued JWT access tokens + rotating opaque refresh cookies, Argon2id password hashing | see §5 |
-| Testing | Vitest (unit), Supertest + Testcontainers (integration), Playwright (E2E) | |
-| CI/CD | GitHub Actions | |
-| Hosting | Vercel (web), Fly.io (API + worker), Neon (Postgres) | |
+| Layer                  | Choice                                                                                    | Version target            |
+| ---------------------- | ----------------------------------------------------------------------------------------- | ------------------------- |
+| Monorepo               | Turborepo + pnpm workspaces                                                               | Turborepo 2.x, pnpm 9.x   |
+| Frontends              | Next.js App Router + React + TypeScript                                                   | Next 15, React 19, TS 5.6 |
+| Styling                | Tailwind CSS + a small in-house component library on Radix primitives                     | Tailwind 4                |
+| Data fetching          | TanStack Query + a generated typed client                                                 | v5                        |
+| Backend                | NestJS on the Fastify adapter, TypeScript                                                 | Nest 11                   |
+| Validation / contracts | Zod schemas in a shared package, OpenAPI generated from them                              | Zod 3                     |
+| Database               | PostgreSQL                                                                                | 16                        |
+| ORM / migrations       | Prisma                                                                                    | 6                         |
+| Background jobs        | pg-boss (job queue inside PostgreSQL)                                                     | 10                        |
+| Auth                   | API-issued JWT access tokens + rotating opaque refresh cookies, Argon2id password hashing | see §5                    |
+| Testing                | Vitest (unit), Supertest + Testcontainers (integration), Playwright (E2E)                 |                           |
+| CI/CD                  | GitHub Actions                                                                            |                           |
+| Hosting                | Vercel (web), Fly.io (API + worker), Neon (Postgres)                                      |                           |
 
 ### 3.2 Why these, and what was rejected
 
 **Next.js for both frontends, rather than React Native or Flutter.**
-A web-first PWA gets to daily usability fastest, runs on desktop and phone from one codebase, installs to the home screen, and works offline through a service worker. The cost is honest and worth stating: iOS web push requires iOS 16.4 or later *and* the app added to the home screen, and background reliability is weaker than a native app. Because the API is a separate service, an Expo client can be added later against the same endpoints without touching the backend.
+A web-first PWA gets to daily usability fastest, runs on desktop and phone from one codebase, installs to the home screen, and works offline through a service worker. The cost is honest and worth stating: iOS web push requires iOS 16.4 or later _and_ the app added to the home screen, and background reliability is weaker than a native app. Because the API is a separate service, an Expo client can be added later against the same endpoints without touching the backend.
 
 **NestJS as a standalone API, rather than Next.js route handlers.**
 Two frontends share this API, and the spec calls for future integrations (wearables, calendar services, health platforms). An API that lives inside one frontend's deployment makes the other frontend a second-class client and couples backend releases to frontend releases. NestJS gives module boundaries that map to the domain, dependency injection that makes the business logic testable without HTTP, guards and interceptors for auth and rate limiting, and OpenAPI generation. Fastify rather than Express for throughput and native schema handling.
@@ -214,11 +214,11 @@ The interface should read as a calm daily instrument rather than an analytics co
 
 ## 10. Deployment and environments
 
-| Environment | Web | API + worker | Database |
-|---|---|---|---|
-| Local | `pnpm dev` | `pnpm dev` | Docker Postgres, or local instance |
-| Preview | Vercel preview per PR | Fly.io preview app, `lhr` | Neon branch per PR |
-| Production | Vercel | Fly.io `lhr` (London), 2 machines minimum | Neon `aws-eu-west-2` (London), PITR enabled |
+| Environment | Web                   | API + worker                              | Database                                    |
+| ----------- | --------------------- | ----------------------------------------- | ------------------------------------------- |
+| Local       | `pnpm dev`            | `pnpm dev`                                | Docker Postgres, or local instance          |
+| Preview     | Vercel preview per PR | Fly.io preview app, `lhr`                 | Neon branch per PR                          |
+| Production  | Vercel                | Fly.io `lhr` (London), 2 machines minimum | Neon `aws-eu-west-2` (London), PITR enabled |
 
 Region is London throughout (decision D6). Neon has no African region, and London is the nearest available with good subsea routing from West Africa, as well as the obviously right choice if the product owner ends up UK-based. A Neon project's region is fixed at creation: changing it later means creating a new project and migrating, so this is worth getting right now rather than later.
 
@@ -234,21 +234,21 @@ Container images are built for the API and worker so the whole stack stays porta
 
 ## 11. Security controls summary
 
-| Control | Implementation |
-|---|---|
-| Password hashing | Argon2id, tuned parameters |
-| Session theft detection | Refresh token family revocation on reuse |
-| Transport | HTTPS only, HSTS with preload |
-| Headers | CSP with nonces, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy` |
-| Input validation | Zod at every API boundary, reject unknown keys |
-| SQL injection | Parameterised queries only, via Prisma or tagged raw SQL |
-| XSS | React escaping by default, no `dangerouslySetInnerHTML`, journal text sanitised on render |
-| CSRF | `SameSite=Lax` + custom header + origin check on cookie endpoints |
-| Authorisation | Guard per route, plus PostgreSQL RLS as a second layer |
-| Rate limiting | Per IP and per user, strict on auth endpoints, sliding window in Postgres |
-| Enumeration | Login and password reset return identical responses and timing whether or not the account exists |
-| Secrets | Environment variables only, `gitleaks` in CI, no secrets in logs |
-| Dependencies | Dependabot, `pnpm audit` gate in CI |
+| Control                 | Implementation                                                                                   |
+| ----------------------- | ------------------------------------------------------------------------------------------------ |
+| Password hashing        | Argon2id, tuned parameters                                                                       |
+| Session theft detection | Refresh token family revocation on reuse                                                         |
+| Transport               | HTTPS only, HSTS with preload                                                                    |
+| Headers                 | CSP with nonces, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`               |
+| Input validation        | Zod at every API boundary, reject unknown keys                                                   |
+| SQL injection           | Parameterised queries only, via Prisma or tagged raw SQL                                         |
+| XSS                     | React escaping by default, no `dangerouslySetInnerHTML`, journal text sanitised on render        |
+| CSRF                    | `SameSite=Lax` + custom header + origin check on cookie endpoints                                |
+| Authorisation           | Guard per route, plus PostgreSQL RLS as a second layer                                           |
+| Rate limiting           | Per IP and per user, strict on auth endpoints, sliding window in Postgres                        |
+| Enumeration             | Login and password reset return identical responses and timing whether or not the account exists |
+| Secrets                 | Environment variables only, `gitleaks` in CI, no secrets in logs                                 |
+| Dependencies            | Dependabot, `pnpm audit` gate in CI                                                              |
 
 ---
 

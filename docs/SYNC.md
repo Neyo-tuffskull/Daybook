@@ -65,21 +65,21 @@ All events share an envelope:
   "recorded_at": "2026-08-28T18:12:01Z",
   "source_app": "fitness",
   "idempotency_key": "...",
-  "payload": { }
+  "payload": {},
 }
 ```
 
-| Event | Emitted when | Consumers |
-|---|---|---|
-| `WORKOUT_STARTED` | a session is created | daybook-projector (marks the activity `active`), notifications |
-| `WORKOUT_COMPLETED` | a session is finalised | daybook-projector, summary-roll-up, records |
-| `WORKOUT_ABANDONED` | a session is abandoned | daybook-projector (activity → `partial` or back to `planned`) |
-| `WORKOUT_UPDATED` | a completed session is edited | daybook-projector (re-projects), summary-roll-up |
-| `WORKOUT_DELETED` | a session is soft-deleted | daybook-projector (compensating: unlink and revert) |
-| `ACTIVITY_COMPLETED` | a Daybook activity is completed | summary-roll-up |
-| `ACTIVITY_SKIPPED` | skipped or missed | summary-roll-up |
-| `HABIT_COMPLETED` | a habit is logged | summary-roll-up, streaks |
-| `SLEEP_LOGGED` | wake or sleep recorded | summary-roll-up |
+| Event                | Emitted when                    | Consumers                                                      |
+| -------------------- | ------------------------------- | -------------------------------------------------------------- |
+| `WORKOUT_STARTED`    | a session is created            | daybook-projector (marks the activity `active`), notifications |
+| `WORKOUT_COMPLETED`  | a session is finalised          | daybook-projector, summary-roll-up, records                    |
+| `WORKOUT_ABANDONED`  | a session is abandoned          | daybook-projector (activity → `partial` or back to `planned`)  |
+| `WORKOUT_UPDATED`    | a completed session is edited   | daybook-projector (re-projects), summary-roll-up               |
+| `WORKOUT_DELETED`    | a session is soft-deleted       | daybook-projector (compensating: unlink and revert)            |
+| `ACTIVITY_COMPLETED` | a Daybook activity is completed | summary-roll-up                                                |
+| `ACTIVITY_SKIPPED`   | skipped or missed               | summary-roll-up                                                |
+| `HABIT_COMPLETED`    | a habit is logged               | summary-roll-up, streaks                                       |
+| `SLEEP_LOGGED`       | wake or sleep recorded          | summary-roll-up                                                |
 
 `WORKOUT_COMPLETED` payload:
 
@@ -87,7 +87,7 @@ All events share an envelope:
 {
   "workout_session_id": "...",
   "routine_name": "Push Day",
-  "activity_id": "...",            // present when the workout was started from a Daybook slot
+  "activity_id": "...", // present when the workout was started from a Daybook slot
   "started_at": "2026-08-28T17:05:00Z",
   "ended_at": "2026-08-28T18:12:00Z",
   "duration_seconds": 4020,
@@ -96,7 +96,7 @@ All events share an envelope:
   "total_reps": 168,
   "total_volume_kg": 8420.5,
   "local_date": "2026-08-28",
-  "timezone": "Africa/Lagos"
+  "timezone": "Africa/Lagos",
 }
 ```
 
@@ -137,16 +137,16 @@ The offline path adds a fifth: `workout_sessions.client_session_uuid` is unique 
 
 ## 6. Retries and failure handling
 
-| Attempt | Delay |
-|---|---|
-| 1 | immediate |
-| 2 | 5 s |
-| 3 | 30 s |
-| 4 | 2 min |
-| 5 | 10 min |
-| 6 | 1 h |
-| 7 | 6 h |
-| 8 | 24 h |
+| Attempt | Delay     |
+| ------- | --------- |
+| 1       | immediate |
+| 2       | 5 s       |
+| 3       | 30 s      |
+| 4       | 2 min     |
+| 5       | 10 min    |
+| 6       | 1 h       |
+| 7       | 6 h       |
+| 8       | 24 h      |
 
 Full jitter is applied to every delay. After attempt 8 the delivery moves to `dead`.
 
@@ -197,14 +197,14 @@ Outbound webhooks, if ever needed, are just another consumer with an HTTP handle
 
 Phase 9 does not ship until these tests pass, and the brief's rule 7 (do not claim something works unless it has been tested) is taken literally:
 
-| Test | Asserts |
-|---|---|
-| Unit | matching rules 1 to 4 pick the right activity across 20 fixture scenarios, including overlaps, ties and midnight boundaries |
-| Unit | the projector is idempotent: applying the same event N times equals applying it once |
-| Integration | the outbox row and the workout row commit or roll back together, verified by forcing a failure between them |
-| Integration | two concurrent workers never process the same delivery, verified with real parallel connections |
-| Integration | the retry ladder advances correctly and a permanent error skips to dead |
-| Integration | `manually_overridden` blocks a status change but still attaches workout detail |
-| E2E | plan a Gym slot, complete a workout in the Fitness app, assert the Daybook timeline shows completed with the real duration, within 5 seconds |
-| E2E | complete a workout with the network disabled, restore the network, assert exactly one Daybook update and no duplicate activity |
-| E2E | deliver the same event twice by replaying it manually, assert one activity, one status event |
+| Test        | Asserts                                                                                                                                      |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Unit        | matching rules 1 to 4 pick the right activity across 20 fixture scenarios, including overlaps, ties and midnight boundaries                  |
+| Unit        | the projector is idempotent: applying the same event N times equals applying it once                                                         |
+| Integration | the outbox row and the workout row commit or roll back together, verified by forcing a failure between them                                  |
+| Integration | two concurrent workers never process the same delivery, verified with real parallel connections                                              |
+| Integration | the retry ladder advances correctly and a permanent error skips to dead                                                                      |
+| Integration | `manually_overridden` blocks a status change but still attaches workout detail                                                               |
+| E2E         | plan a Gym slot, complete a workout in the Fitness app, assert the Daybook timeline shows completed with the real duration, within 5 seconds |
+| E2E         | complete a workout with the network disabled, restore the network, assert exactly one Daybook update and no duplicate activity               |
+| E2E         | deliver the same event twice by replaying it manually, assert one activity, one status event                                                 |

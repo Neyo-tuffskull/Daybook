@@ -119,9 +119,7 @@ export function eachDay(from: DayKey, to: DayKey): DayKey[] {
     throw new RangeError(`Expected YYYY-MM-DD bounds, received ${from} and ${to}`);
   }
   while (cursor <= end) {
-    days.push(
-      toIsoDate(cursor.getUTCFullYear(), cursor.getUTCMonth() + 1, cursor.getUTCDate()),
-    );
+    days.push(toIsoDate(cursor.getUTCFullYear(), cursor.getUTCMonth() + 1, cursor.getUTCDate()));
     cursor.setUTCDate(cursor.getUTCDate() + 1);
   }
   return days;

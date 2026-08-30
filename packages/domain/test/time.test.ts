@@ -19,10 +19,7 @@ describe('dayKey', () => {
 
   it('rolls back across a month boundary', () => {
     const justAfterMidnight = new Date('2026-09-01T00:30:00+01:00');
-    assert.equal(
-      dayKey(justAfterMidnight, 'Africa/Lagos', { startOfDay: '04:00' }),
-      '2026-08-31',
-    );
+    assert.equal(dayKey(justAfterMidnight, 'Africa/Lagos', { startOfDay: '04:00' }), '2026-08-31');
   });
 
   it('rolls back across a year boundary', () => {

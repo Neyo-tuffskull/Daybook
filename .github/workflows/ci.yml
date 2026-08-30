@@ -25,6 +25,7 @@ jobs:
       - uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
 
   # Needs no install, so it reports the highest-value failure fastest: the
   # scoring rules and the timezone helper the whole product depends on.

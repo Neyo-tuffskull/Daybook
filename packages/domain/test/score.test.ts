@@ -81,9 +81,7 @@ describe('calculateScore', () => {
   });
 
   it('is unmoved by timeliness when nothing recorded an actual start', () => {
-    const timeliness = calculateScore(realDay).breakdown.find(
-      (c) => c.component === 'timeliness',
-    );
+    const timeliness = calculateScore(realDay).breakdown.find((c) => c.component === 'timeliness');
     assert.equal(timeliness?.eligible, false);
   });
 

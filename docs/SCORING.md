@@ -32,12 +32,12 @@ score      = null if eligible is empty
 
 ### Default weights
 
-| Component | Default weight | Configurable range |
-|---|---|---|
-| Schedule completion | 0.35 | 0.10 to 0.40 |
-| Habit completion | 0.25 | 0.10 to 0.40 |
-| Workout adherence | 0.20 | 0.10 to 0.40 |
-| Timeliness | 0.20 | 0.10 to 0.40 |
+| Component           | Default weight | Configurable range |
+| ------------------- | -------------- | ------------------ |
+| Schedule completion | 0.35           | 0.10 to 0.40       |
+| Habit completion    | 0.25           | 0.10 to 0.40       |
+| Workout adherence   | 0.20           | 0.10 to 0.40       |
+| Timeliness          | 0.20           | 0.10 to 0.40       |
 
 Weights live in `user_preferences.score_weights`. They are clamped to the range on write and renormalised to sum to 1. The clamp is what stops any one category dominating, as the brief requires.
 
@@ -55,21 +55,21 @@ raw_schedule = Σ (p_i × r_i) ÷ Σ (p_i)
 
 over all activities planned for the day, excluding those with `source = 'sync'` (unplanned) and those with status `rescheduled` (they now belong to another day).
 
-| Priority | p |
-|---|---|
-| low | 1 |
-| medium | 2 |
-| high | 3 |
-| critical | 5 |
+| Priority | p   |
+| -------- | --- |
+| low      | 1   |
+| medium   | 2   |
+| high     | 3   |
+| critical | 5   |
 
-| Status | r |
-|---|---|
-| completed | 1.0 |
-| partial | the recorded `completion_ratio`, default 0.5 |
-| active at day end | 0.5 |
-| skipped | 0.0 |
-| missed | 0.0 |
-| planned, day not over | excluded until the window has passed |
+| Status                | r                                            |
+| --------------------- | -------------------------------------------- |
+| completed             | 1.0                                          |
+| partial               | the recorded `completion_ratio`, default 0.5 |
+| active at day end     | 0.5                                          |
+| skipped               | 0.0                                          |
+| missed                | 0.0                                          |
+| planned, day not over | excluded until the window has passed         |
 
 Excluding not-yet-due activities matters: the score at 10am should reflect the morning, not predict a failed afternoon.
 
@@ -85,15 +85,15 @@ Eligible only when at least one habit is due.
 
 ### 3.3 Workout adherence (weight 0.20)
 
-| Situation | raw |
-|---|---|
-| Workout planned, completed | 1.0 |
-| Workout planned, session started and abandoned | `completed_sets ÷ target_sets`, capped at 1.0 |
-| Workout planned, nothing recorded | 0.0 |
-| No workout planned | **not eligible**, weight redistributed |
-| No workout planned but one was done | not eligible for the score, shown separately as a bonus note |
+| Situation                                      | raw                                                          |
+| ---------------------------------------------- | ------------------------------------------------------------ |
+| Workout planned, completed                     | 1.0                                                          |
+| Workout planned, session started and abandoned | `completed_sets ÷ target_sets`, capped at 1.0                |
+| Workout planned, nothing recorded              | 0.0                                                          |
+| No workout planned                             | **not eligible**, weight redistributed                       |
+| No workout planned but one was done            | not eligible for the score, shown separately as a bonus note |
 
-The last row is deliberate. An unplanned workout is good, but rewarding it inside a *plan adherence* score would make the number mean two different things.
+The last row is deliberate. An unplanned workout is good, but rewarding it inside a _plan adherence_ score would make the number mean two different things.
 
 ### 3.4 Timeliness (weight 0.20)
 
@@ -117,22 +117,22 @@ Eligible only when at least one activity has a recorded `actual_start`.
 
 Thursday. 14 activities planned, 11 completed, 2 missed, 1 skipped. Four habits due, three done. A gym session was planned and completed. Nine activities were started with a mean punctuality of 0.62.
 
-| Component | raw | weight | normalised | contribution |
-|---|---|---|---|---|
-| Schedule (priority-weighted, 0.83) | 0.83 | 0.35 | 0.35 | 29.1 |
-| Habits (3 of 4) | 0.75 | 0.25 | 0.25 | 18.8 |
-| Workout (completed) | 1.00 | 0.20 | 0.20 | 20.0 |
-| Timeliness | 0.62 | 0.20 | 0.20 | 12.4 |
-| **Total** | | | 1.00 | **80.2** |
+| Component                          | raw  | weight | normalised | contribution |
+| ---------------------------------- | ---- | ------ | ---------- | ------------ |
+| Schedule (priority-weighted, 0.83) | 0.83 | 0.35   | 0.35       | 29.1         |
+| Habits (3 of 4)                    | 0.75 | 0.25   | 0.25       | 18.8         |
+| Workout (completed)                | 1.00 | 0.20   | 0.20       | 20.0         |
+| Timeliness                         | 0.62 | 0.20   | 0.20       | 12.4         |
+| **Total**                          |      |        | 1.00       | **80.2**     |
 
 Now the same day with no workout planned. The workout component is dropped, `W` becomes 0.80, and the remaining weights rescale to 0.4375, 0.3125, 0.25:
 
-| Component | raw | normalised | contribution |
-|---|---|---|---|
-| Schedule | 0.83 | 0.4375 | 36.3 |
-| Habits | 0.75 | 0.3125 | 23.4 |
-| Timeliness | 0.62 | 0.25 | 15.5 |
-| **Total** | | 1.00 | **75.3** |
+| Component  | raw  | normalised | contribution |
+| ---------- | ---- | ---------- | ------------ |
+| Schedule   | 0.83 | 0.4375     | 36.3         |
+| Habits     | 0.75 | 0.3125     | 23.4         |
+| Timeliness | 0.62 | 0.25       | 15.5         |
+| **Total**  |      | 1.00       | **75.3**     |
 
 The rest day scores on its own terms rather than being marked down for a workout that was never planned.
 

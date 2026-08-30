@@ -12,12 +12,7 @@
 
 export type ComponentName = 'schedule' | 'habits' | 'workout' | 'timeliness';
 
-export const COMPONENTS: readonly ComponentName[] = [
-  'schedule',
-  'habits',
-  'workout',
-  'timeliness',
-];
+export const COMPONENTS: readonly ComponentName[] = ['schedule', 'habits', 'workout', 'timeliness'];
 
 export type ScoreWeights = Record<ComponentName, number>;
 
@@ -38,13 +33,7 @@ export type Priority = 1 | 2 | 3 | 4;
 export const PRIORITY_WEIGHT: Record<Priority, number> = { 1: 1, 2: 2, 3: 3, 4: 5 };
 
 export type ActivityStatus =
-  | 'planned'
-  | 'active'
-  | 'completed'
-  | 'partial'
-  | 'skipped'
-  | 'missed'
-  | 'rescheduled';
+  'planned' | 'active' | 'completed' | 'partial' | 'skipped' | 'missed' | 'rescheduled';
 
 export interface ScoredActivity {
   priority: Priority;

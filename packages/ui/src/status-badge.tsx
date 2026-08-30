@@ -1,12 +1,6 @@
 import type { ReactElement } from 'react';
 
-export type StatusTone =
-  | 'planned'
-  | 'active'
-  | 'completed'
-  | 'partial'
-  | 'skipped'
-  | 'missed';
+export type StatusTone = 'planned' | 'active' | 'completed' | 'partial' | 'skipped' | 'missed';
 
 const LABELS: Record<StatusTone, string> = {
   planned: 'Planned',

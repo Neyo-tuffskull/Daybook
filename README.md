@@ -18,15 +18,15 @@ Getting started: [docs/SETUP.md](docs/SETUP.md).
 
 ## Documentation
 
-| Document | What it covers |
-|---|---|
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Technology stack and the reasoning behind each choice, monorepo layout, authentication design, runtime topology, deployment, security controls |
-| [docs/DATABASE.md](docs/DATABASE.md) | The full PostgreSQL schema, the ERD, every table with keys, indexes and constraints, row-level security, soft delete, migration strategy |
-| [docs/API.md](docs/API.md) | The complete REST contract, error format, rate limits, idempotency and concurrency rules, sample payloads |
-| [docs/SYNC.md](docs/SYNC.md) | The Fitness to Daybook event pipeline: transactional outbox, event catalogue, activity matching rules, idempotency layers, retries, conflict policy, offline replay |
-| [docs/SCORING.md](docs/SCORING.md) | The productivity score formula in full, with worked examples, and the rules governing planned-versus-actual analysis |
-| [docs/ROADMAP.md](docs/ROADMAP.md) | Phase state, exit criteria per phase, risk register, decisions log |
-| [docs/SETUP.md](docs/SETUP.md) | Prerequisites, first run, environment variables, what is and is not verified, troubleshooting |
+| Document                                     | What it covers                                                                                                                                                      |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Technology stack and the reasoning behind each choice, monorepo layout, authentication design, runtime topology, deployment, security controls                      |
+| [docs/DATABASE.md](docs/DATABASE.md)         | The full PostgreSQL schema, the ERD, every table with keys, indexes and constraints, row-level security, soft delete, migration strategy                            |
+| [docs/API.md](docs/API.md)                   | The complete REST contract, error format, rate limits, idempotency and concurrency rules, sample payloads                                                           |
+| [docs/SYNC.md](docs/SYNC.md)                 | The Fitness to Daybook event pipeline: transactional outbox, event catalogue, activity matching rules, idempotency layers, retries, conflict policy, offline replay |
+| [docs/SCORING.md](docs/SCORING.md)           | The productivity score formula in full, with worked examples, and the rules governing planned-versus-actual analysis                                                |
+| [docs/ROADMAP.md](docs/ROADMAP.md)           | Phase state, exit criteria per phase, risk register, decisions log                                                                                                  |
+| [docs/SETUP.md](docs/SETUP.md)               | Prerequisites, first run, environment variables, what is and is not verified, troubleshooting                                                                       |
 
 Start with ARCHITECTURE.md. Read SYNC.md next: it is the part of the system everything else exists to support.
 
