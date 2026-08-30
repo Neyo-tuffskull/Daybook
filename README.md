@@ -10,9 +10,9 @@ A personal planning and performance system: a daily planner that knows what you 
 
 **Phases 1 and 2 complete. Phase 3, authentication, is next.**
 
-The foundation runs: two Next.js apps, a NestJS API, a background worker and a 30-table PostgreSQL schema with row-level security, verified end to end against managed Postgres in London. `GET /v1/readyz` returns ok connecting as the restricted application role. Install, typecheck, test, build and lint are all green.
+The foundation runs: two Next.js apps, a NestJS API, a background worker and a 30-table PostgreSQL schema with row-level security, verified end to end against managed Postgres in London. `GET /v1/readyz` returns ok connecting as the restricted application role, and CI is green on four jobs.
 
-Twelve defects were found and fixed getting there, every one of them by running something rather than reading it. [docs/SETUP.md](docs/SETUP.md) section 5 lists them and what each one needed to be caught.
+Sixteen defects were found and fixed getting there, every one by running something rather than reading it: three needed Windows, two needed Node 26, three needed a managed database rather than a local superuser, and four needed a machine that had never built the project before. [docs/ROADMAP.md](docs/ROADMAP.md) lists them all with what each one took to surface.
 
 Getting started: [docs/SETUP.md](docs/SETUP.md).
 
