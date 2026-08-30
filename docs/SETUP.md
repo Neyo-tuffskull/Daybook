@@ -6,12 +6,12 @@
 
 ## 1. Prerequisites
 
-| Tool       | Version        | Why                                                                                                                                          |
-| ---------- | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| Node       | 22.18 or later | The domain tests use the built-in test runner and native TypeScript stripping, which is on by default from 22.18                             |
-| pnpm       | 9.x            | Workspaces. Install with `npm install -g pnpm@9`. Corepack is not bundled with Node from version 25 onward, so `corepack enable` fails there |
-| PostgreSQL | 16             | Generated columns, row-level security, partial indexes                                                                                       |
-| Docker     | any recent     | Optional, for the local database                                                                                                             |
+| Tool | Version | Why |
+|---|---|---|
+| Node | 22.18 or later | The domain tests use the built-in test runner and native TypeScript stripping, which is on by default from 22.18 |
+| pnpm | 9.x | Workspaces. Install with `npm install -g pnpm@9`. Corepack is not bundled with Node from version 25 onward, so `corepack enable` fails there |
+| PostgreSQL | 16 | Generated columns, row-level security, partial indexes |
+| Docker | any recent | Optional, for the local database |
 
 ## 2. First run
 
@@ -135,16 +135,16 @@ A single superuser URL for everything would work and would throw away the protec
 
 ## 4. Everyday commands
 
-| Command                              | What it does                                                           |
-| ------------------------------------ | ---------------------------------------------------------------------- |
-| `pnpm dev`                           | All four services, watching                                            |
-| `pnpm test`                          | Unit tests across the workspace                                        |
-| `pnpm test:e2e`                      | Playwright, desktop and mobile viewports                               |
-| `pnpm lint`                          | ESLint, including the rule that keeps `packages/domain` framework-free |
-| `pnpm typecheck`                     | TypeScript, strict, no emit                                            |
-| `pnpm format`                        | Prettier                                                               |
-| `pnpm --filter @daybook/db db:smoke` | The 15 schema assertions, via Prisma, no psql needed                   |
-| `pnpm --filter @daybook/domain test` | Domain tests alone. Needs no install, no flags, no build step          |
+| Command | What it does |
+|---|---|
+| `pnpm dev` | All four services, watching |
+| `pnpm test` | Unit tests across the workspace |
+| `pnpm test:e2e` | Playwright, desktop and mobile viewports |
+| `pnpm lint` | ESLint, including the rule that keeps `packages/domain` framework-free |
+| `pnpm typecheck` | TypeScript, strict, no emit |
+| `pnpm format` | Prettier |
+| `pnpm --filter @daybook/db db:smoke` | The 15 schema assertions, via Prisma, no psql needed |
+| `pnpm --filter @daybook/domain test` | Domain tests alone. Needs no install, no flags, no build step |
 
 That last one is worth knowing: the domain package has no dependencies, so its tests run on a fresh checkout before `pnpm install` finishes.
 
@@ -155,18 +155,18 @@ This section is that accounting, kept honest rather than optimistic.
 
 ### Verified by running it
 
-| Check                                                 | Where                                           | Result                                                                                                              |
-| ----------------------------------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| Bootstrap and migration on a clean PostgreSQL 16      | Linux                                           | 30 tables, 98 indexes, 152 constraints, 33 policies, 15 triggers                                                    |
-| Migrations re-apply from scratch to a second database | Linux                                           | Clean                                                                                                               |
-| 15 schema assertions                                  | Linux                                           | All pass                                                                                                            |
-| 30 domain unit tests                                  | Linux, Node 22.22 **and Windows 11, Node 26.4** | All pass                                                                                                            |
-| `pnpm install`                                        | Windows 11                                      | 511 packages                                                                                                        |
-| `pnpm typecheck`                                      | Windows 11                                      | 10 of 10 tasks                                                                                                      |
-| `pnpm test`                                           | Windows 11                                      | 10 of 10 tasks                                                                                                      |
-| `pnpm build`                                          | Windows 11                                      | 5 of 5. Both Next apps compiled and prerendered, `nest build` and the worker compile clean, Prisma client generated |
-| `pnpm lint`                                           | Windows 11                                      | 10 of 10 tasks                                                                                                      |
-| Every JSON and YAML config parses                     | Linux                                           | Clean                                                                                                               |
+| Check | Where | Result |
+|---|---|---|
+| Bootstrap and migration on a clean PostgreSQL 16 | Linux | 30 tables, 98 indexes, 152 constraints, 33 policies, 15 triggers |
+| Migrations re-apply from scratch to a second database | Linux | Clean |
+| 15 schema assertions | Linux | All pass |
+| 30 domain unit tests | Linux, Node 22.22 **and Windows 11, Node 26.4** | All pass |
+| `pnpm install` | Windows 11 | 511 packages |
+| `pnpm typecheck` | Windows 11 | 10 of 10 tasks |
+| `pnpm test` | Windows 11 | 10 of 10 tasks |
+| `pnpm build` | Windows 11 | 5 of 5. Both Next apps compiled and prerendered, `nest build` and the worker compile clean, Prisma client generated |
+| `pnpm lint` | Windows 11 | 10 of 10 tasks |
+| Every JSON and YAML config parses | Linux | Clean |
 
 | Bootstrap, schema and grants on managed PostgreSQL 16 (London) | Neon | Applied |
 | 15 schema assertions, run three times in a row | Neon and Linux | 15, 15, 15 |
@@ -183,17 +183,17 @@ This section is that accounting, kept honest rather than optimistic.
 
 Nine defects, each found by running something rather than by reading it.
 
-| #   | Defect                                                                          | Only findable by                             |
-| --- | ------------------------------------------------------------------------------- | -------------------------------------------- |
-| 1   | Six foreign keys with no index                                                  | Applying the schema                          |
-| 2   | Three credential tables with no access control                                  | A test that queried as the unprivileged role |
-| 3   | `--experimental-strip-types` removed in Node 26                                 | A machine running Node 26                    |
-| 4   | Corepack not bundled from Node 25                                               | The same                                     |
-| 5   | `@eslint/js`, `typescript-eslint` and `@types/node` imported but never declared | Installing                                   |
-| 6   | `fastify` imported but never declared                                           | Building under pnpm's isolated linker        |
-| 7   | `db` typecheck racing its own `prisma generate`                                 | Running them together                        |
-| 8   | Two `prisma generate` processes fighting over one DLL                           | Windows file locking, invisible on Linux     |
-| 9   | `require-await` on the placeholder dispatch handler                             | Linting                                      |
+| # | Defect | Only findable by |
+|---|---|---|
+| 1 | Six foreign keys with no index | Applying the schema |
+| 2 | Three credential tables with no access control | A test that queried as the unprivileged role |
+| 3 | `--experimental-strip-types` removed in Node 26 | A machine running Node 26 |
+| 4 | Corepack not bundled from Node 25 | The same |
+| 5 | `@eslint/js`, `typescript-eslint` and `@types/node` imported but never declared | Installing |
+| 6 | `fastify` imported but never declared | Building under pnpm's isolated linker |
+| 7 | `db` typecheck racing its own `prisma generate` | Running them together |
+| 8 | Two `prisma generate` processes fighting over one DLL | Windows file locking, invisible on Linux |
+| 9 | `require-await` on the placeholder dispatch handler | Linting |
 
 Three of those nine needed Windows, and two needed Node 26. Neither was
 available where the code was written, which is the case for testing on the
@@ -240,6 +240,14 @@ Either `.env` does not exist at the repository root yet, or it exists and has
 no value on that line. The `db:` scripts load it through `dotenv-cli`; run them
 from the repository root with `pnpm --filter @daybook/db <script>` rather than
 calling `prisma` directly, which would look for `.env` in the wrong place.
+
+**A wall of `no-unsafe-*` lint errors in `packages/db/src/index.ts`**
+Same root cause as the missing-module error below: the Prisma client has not
+been generated, so every type in that file resolves to `error` and the
+type-aware rules report each use of it. `packages/db/turbo.json` makes both
+`lint` and `typecheck` wait for the package's own `build`. It reproduces only
+on a clean checkout, because a local machine usually has `generated/` left over
+from an earlier run.
 
 **`Cannot find module '../generated/client/index.js'` in @daybook/db**
 The Prisma client has not been generated. `pnpm --filter @daybook/db build`
