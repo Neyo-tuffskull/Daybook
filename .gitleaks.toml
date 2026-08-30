@@ -1,0 +1,26 @@
+# Gitleaks configuration.
+#
+# The default rules flag long high-entropy strings, which makes a pnpm lockfile
+# look like a wall of secrets: every dependency carries a sha512 integrity hash.
+# Those are content checksums, published in the clear by the registry, and
+# suppressing them is what keeps the scan worth reading. A scanner that cries
+# wolf on every install is a scanner people stop paying attention to.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Lockfile integrity hashes are public checksums, not credentials"
+paths = ['''pnpm-lock\.yaml''']
+
+[[allowlists]]
+description = "Documented placeholders, not values"
+paths = [
+  '''\.env\.example''',
+  '''docs/SETUP\.md''',
+]
+
+[[allowlists]]
+description = "Test fixtures use obviously fake values"
+paths = ['''packages/db/tests/schema_smoke\.sql''']
+regexes = ['''argon2-placeholder''']
