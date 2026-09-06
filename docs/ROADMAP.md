@@ -1,7 +1,7 @@
 # Development Roadmap, Risks and Phase State
 
-**Status:** Phases 1 and 2 complete. Phase 3 ready to start.
-**Last updated:** 2026-08-30
+**Status:** Phases 1 and 2 complete. Phase 3a written, not yet verified.
+**Last updated:** 2026-09-04
 
 This file is the session-to-session handover. Any future session should read it first to know exactly where the build stopped.
 
@@ -9,26 +9,26 @@ This file is the session-to-session handover. Any future session should read it 
 
 ## 1. Phase state
 
-| Phase | Name                          | State                    | Notes                                                                                                                                                            |
-| ----- | ----------------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0     | Project discovery             | **complete**             | Green field. Nothing existed. Toolchain verified.                                                                                                                |
-| 1     | Architecture                  | **complete, signed off** | Documentation set complete. All eight decisions closed.                                                                                                          |
-| 2     | Project foundation            | **complete**             | Verified end to end on Windows 11 / Node 26 against managed PostgreSQL 16 in London. `/v1/readyz` returns ok as the restricted role. CI green on GitHub Actions. |
-| 3     | Authentication                | **ready to start**       |                                                                                                                                                                  |
-| 4     | Daybook core                  | not started              |                                                                                                                                                                  |
-| 5     | Recurring schedules           | not started              |                                                                                                                                                                  |
-| 6     | Habits                        | not started              |                                                                                                                                                                  |
-| 7     | Journal                       | not started              |                                                                                                                                                                  |
-| 8     | Fitness app                   | not started              |                                                                                                                                                                  |
-| 9     | Daybook / Fitness integration | not started              |                                                                                                                                                                  |
-| 10    | Analytics                     | not started              |                                                                                                                                                                  |
-| 11    | Notifications                 | not started              |                                                                                                                                                                  |
-| 12    | Offline support               | not started              |                                                                                                                                                                  |
-| 13    | UI/UX polish                  | not started              |                                                                                                                                                                  |
-| 14    | Security audit                | not started              |                                                                                                                                                                  |
-| 15    | Testing                       | not started              |                                                                                                                                                                  |
-| 16    | Deployment                    | not started              |                                                                                                                                                                  |
-| 17    | Final audit                   | not started              |                                                                                                                                                                  |
+| Phase | Name                          | State                      | Notes                                                                                                                                                            |
+| ----- | ----------------------------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0     | Project discovery             | **complete**               | Green field. Nothing existed. Toolchain verified.                                                                                                                |
+| 1     | Architecture                  | **complete, signed off**   | Documentation set complete. All eight decisions closed.                                                                                                          |
+| 2     | Project foundation            | **complete**               | Verified end to end on Windows 11 / Node 26 against managed PostgreSQL 16 in London. `/v1/readyz` returns ok as the restricted role. CI green on GitHub Actions. |
+| 3     | Authentication                | **3a written, unverified** | Password auth, rotation with reuse detection, verification, reset, `/me`. Nothing run yet: no install, no tests. 3b is Google sign-in.                           |
+| 4     | Daybook core                  | not started                |                                                                                                                                                                  |
+| 5     | Recurring schedules           | not started                |                                                                                                                                                                  |
+| 6     | Habits                        | not started                |                                                                                                                                                                  |
+| 7     | Journal                       | not started                |                                                                                                                                                                  |
+| 8     | Fitness app                   | not started                |                                                                                                                                                                  |
+| 9     | Daybook / Fitness integration | not started                |                                                                                                                                                                  |
+| 10    | Analytics                     | not started                |                                                                                                                                                                  |
+| 11    | Notifications                 | not started                |                                                                                                                                                                  |
+| 12    | Offline support               | not started                |                                                                                                                                                                  |
+| 13    | UI/UX polish                  | not started                |                                                                                                                                                                  |
+| 14    | Security audit                | not started                |                                                                                                                                                                  |
+| 15    | Testing                       | not started                |                                                                                                                                                                  |
+| 16    | Deployment                    | not started                |                                                                                                                                                                  |
+| 17    | Final audit                   | not started                |                                                                                                                                                                  |
 
 ---
 
@@ -129,6 +129,152 @@ Registration, email verification, login, refresh rotation with reuse detection, 
 
 **Exit criterion:** an integration test proves that a reused refresh token revokes the whole family, and that user B receives 404 for every one of user A's resources. Signing in on Daybook grants a session on Fitness without a second login.
 
+Split in two. **3a** is password authentication and the session machinery. **3b**
+is Google sign-in over the same session rows, which is a smaller job once 3a
+exists and which needs a Google Cloud project that does not exist yet.
+
+#### 3a: written 2026-09-04, not yet verified
+
+Built:
+
+- Argon2id password hashing, parameters in configuration and recorded inside
+  each hash, so they can be raised later without invalidating anything. An
+  unknown address is verified against a decoy hash so login takes the same time
+  whether or not the account exists.
+- 10-minute EdDSA access tokens, issuer and audience checked on every request,
+  with a `kid` header so a signing key can be rotated without killing every
+  token issued under the previous one.
+- Rotating opaque refresh tokens, 32 random bytes, only the SHA-256 hash
+  stored. The exchange is one transaction, so two tabs refreshing at once do
+  not look like a theft.
+- Family reuse detection: presenting an already-rotated token revokes the whole
+  chain, including the token the legitimate client holds.
+- Email verification and password reset as real single-use, expiring, hashed
+  tokens. Only the transport is a console line, and it refuses to log a link at
+  all in production.
+- A global guard: every route is authenticated unless it carries `@Public()`.
+- Per-caller rate limits with a separate, much tighter budget for the
+  credential routes.
+- `GET`/`PATCH /v1/me`, and `GET /v1/auth/sessions` so a person can see what
+  signing out everywhere would end.
+- Migration 0003: a `SECURITY DEFINER` trigger that gives every new user their
+  profile, preferences and notification rows in the same transaction as the
+  user, plus two pruning functions for dead sessions and spent tokens.
+
+**Defect 17, found by running it (2026-09-04).** `db:bootstrap`, `db:apply`,
+`db:grants`, `db:pull` and `db:smoke` all connected as `daybook_app`, because
+Prisma reads exactly one connection string and that string is the application
+role. That role owns nothing, cannot create a table, cannot grant a privilege
+and cannot insert a user, which is the entire point of it and made it the one
+role least able to run a migration. The symptom was mistaken for a managed
+provider limitation in Phase 2 and worked around by pasting every migration
+into a database console by hand. `packages/db/scripts/as-owner.mjs` now
+substitutes `DATABASE_MIGRATION_URL` for the duration of one command, prints
+the role and database it connected as, and refuses to run when the variable is
+missing rather than falling back to the wrong role. `pnpm db:migrate` applies
+every pending migration in order, discovering them rather than listing them.
+
+Worth naming plainly: this was invisible for a week because the workaround
+worked. A step that a person does by hand every time is not a step that is
+working, it is a defect with a human in the loop.
+
+**Defect 18, found by running the fix for defect 17 (2026-09-04).** The first
+version of that runner re-applied every file on every run, on the stated claim
+that all of them were idempotent by construction. The claim was false and had
+been written into the commit message, the setup guide and this file before
+anyone ran it. `0001_init` is several hundred lines of plain `CREATE TABLE` and
+stops at the first table that already exists.
+
+Two ways out. Rewrite the schema into `IF NOT EXISTS` everywhere, which is
+worse than it sounds: `CREATE TABLE IF NOT EXISTS` accepts an existing table
+with entirely the wrong columns and says nothing, and there is no
+`CREATE POLICY IF NOT EXISTS` at all. Or record what has been applied, which is
+what a migration runner is for.
+
+So there is now a `schema_migrations` ledger holding a name, a checksum and a
+timestamp, unreadable by either application role. The checksum is the part that
+earns its place: editing a migration that has already run means the database
+and the repository disagree and the file no longer describes what is really
+there, so that fails on the next run rather than surfacing months later. A
+database built before the ledger existed is adopted explicitly with
+`--baseline=<name>` rather than guessed at, and `--status` prints what is
+applied and what is not.
+
+The lesson is the same one as rule 7, aimed at me rather than at the code: "is
+idempotent" is a claim about behaviour, and I wrote it into three files without
+running it once.
+
+**Defect 19, found on the first genuinely empty database (2026-09-04).** The
+adoption check asked `SELECT to_regclass('public.users')`, and Prisma cannot
+deserialize the `regclass` type. Worth noting how it hid: that branch only runs
+when the ledger is empty, and by the time the runner existed the development
+database had already been adopted, so the line had never executed. The first
+database that reached it was the test one. Now a plain boolean out of
+`pg_class`.
+
+Three defects in a row, 17, 18 and 19, each invisible until something ran. That
+is not a run of bad luck, it is what the difference between reading code and
+running it looks like when you measure it.
+
+**Defect 20, found on the first run of the auth suite (2026-09-04).** Every
+request returned 500, including `GET /v1/healthz`, which returns a constant and
+touches nothing. Vitest transforms TypeScript with esbuild, and esbuild does not
+implement `emitDecoratorMetadata`. Nest reads the `design:paramtypes` metadata
+that setting emits to work out what a constructor wants, so under vitest every
+injected dependency arrived as `undefined` and the first property access on one
+threw. It surfaces at the first line of the first request rather than at boot,
+which is what made it look like an application bug rather than a build one. The
+test configs now transform through SWC, with decorator settings that mirror
+`apps/api/tsconfig.json`.
+
+**Defect 21, found by the same run.** The rate limiter fired correctly at five
+attempts and the response was still a 500: `@fastify/rate-limit` throws an
+error carrying its own `statusCode`, and the error filter treated anything that
+was not a Nest `HttpException` as an unhandled bug. Every Fastify-native error
+was doing this — a malformed JSON body, an oversized payload, an unsupported
+content type — turning a fault the client caused into one that reads as ours.
+The filter now honours a status below 500 when the thrown object carries one.
+
+That first fix was half of it, and the run afterwards showed why. The object
+`errorResponseBuilder` returns is thrown rather than sent, and I had it
+returning the finished response body, which carried no status at all. The
+result was a perfectly formed 429 payload delivered with a 500 on it. The
+builder now returns the status and the message and lets the filter build the
+body, which is the only arrangement where one error shape is actually
+guaranteed. Two attempts at one defect, both because I reasoned about a
+library's behaviour instead of reading what it threw.
+
+**Defect 24, found by leaving the database alone overnight (2026-09-06).** The
+suite assumed a warm database. Neon suspends its compute when nobody is using
+it, and the first connection after that waits for it to resume; Prisma's
+default pool timeout is ten seconds, which is shorter than a cold start. The
+first query in `beforeAll` timed out and all nineteen tests were skipped, which
+reads as a total failure and is not a bug in anything. The setup file now waits
+for the database with backoff before the first test runs, and says so while it
+waits. Worth keeping in mind for CI: anything scale-to-zero needs a warm-up
+step, not a longer timeout and optimism.
+
+**Defect 22, found by looking for defect 20.** The filter's 500 branch said
+"the problem has been recorded" and then recorded it only through the request
+logger. Nineteen failing requests produced not one line about what actually
+threw. A log level, a redaction rule or a logger that was never attached is
+enough to make an unhandled exception vanish entirely, and a 500 with nothing
+behind it anywhere is close to the worst thing an API can do. It now also goes
+to stderr with its stack outside production.
+
+**Still to prove.** None of the authentication code has been run. The integration suite in
+`apps/api/test/auth.integration.test.ts` is written and covers the exit
+criterion, but a suite that has never executed is a description, not evidence.
+Phase 3a closes when it passes against a real database, alongside lint,
+typecheck, build and the 18 schema assertions.
+
+**One honest gap in the exit criterion.** "User B receives 404 for every one of
+user A's resources" cannot be tested over HTTP yet, because there are no
+resource endpoints until Phase 4. The suite tests the property at the layer
+that enforces it: two accounts, a row belonging to one, and the other querying
+through the same `asUser` path the API uses, getting nothing back. The
+HTTP-level assertion is a Phase 4 exit requirement.
+
 ### Phase 4: Daybook core
 
 Categories, one-off activities, the day timeline, status transitions with the state machine, start/pause/resume/complete/skip, the current-activity view, the daily dashboard.
@@ -225,6 +371,11 @@ The alternative, building all the infrastructure first and the experience last, 
 | D6  | **Hosting region**     | **London, `aws-eu-west-2`. API and worker co-located in London so the API-to-database hop stays in region.**                                                                                                                                             | 2026-08-28 |
 | D7  | **Version control**    | **Scoped fine-grained GitHub token, single repository, Contents and Workflows read/write, short expiry, revoked when the project pauses.**                                                                                                               | 2026-08-28 |
 | D8  | **Session ownership**  | **The API owns identity. Argon2id passwords, 10-minute EdDSA access tokens, rotating opaque refresh cookie with family reuse detection, sessions in `auth_sessions`. Google sign-in via OIDC in Phase 3, landing in the same session row. Not Auth.js.** | 2026-08-29 |
+
+| D9 | **Credential queries are written SQL, not generated models** | **`prisma db pull` introspects as `daybook_app`, which cannot see three of the five credential tables. Widening that role to satisfy a code generator would undo the reason the role exists, so `packages/db/src/auth.ts` is parameterised SQL against the schema in the same package.** | 2026-09-04 |
+| D10 | **Companion rows come from a trigger** | **A `SECURITY DEFINER` trigger creates `user_profiles`, `user_preferences` and `notification_preferences` on every user insert. The alternatives were to widen `daybook_auth` until it could write profile tables, or to use a second transaction and accept a window where a user has no profile.** | 2026-09-04 |
+| D11 | **Registration says when an address is taken** | **Sign-in and password reset refuse to reveal whether an account exists; registration does not, because any answer other than success reveals it anyway. The genuinely non-enumerating design answers "check your email" always and cannot sign anyone in at the end of registering. The defence is the rate limit on the route.** | 2026-09-04 |
+| D12 | **Rate limits are in-memory** | **Correct for one instance, wrong for several. Moves to Redis when the API is actually scaled out, which is Phase 16 at the earliest. Recorded rather than left as a surprise.** | 2026-09-04 |
 
 ### Consequences of D4 for the auth design
 

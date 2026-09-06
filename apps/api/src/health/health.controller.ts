@@ -1,15 +1,24 @@
 import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
 import { pingDatabase } from '@daybook/db';
+import { Public } from '../auth/auth.decorators.ts';
 
 @Controller()
 export class HealthController {
   /** Liveness: is the process up. Never touches the database. */
+  @Public()
   @Get('healthz')
   live(): { status: string } {
     return { status: 'ok' };
   }
 
-  /** Readiness: can this instance actually serve traffic. */
+  /**
+   * Readiness: can this instance actually serve traffic.
+   *
+   * Public because the thing calling it is a load balancer, which has no
+   * credentials and never will. It reveals only whether the database answered,
+   * which is the same thing an outage reveals anyway.
+   */
+  @Public()
   @Get('readyz')
   async ready(): Promise<{ status: string; database: string }> {
     const database = await pingDatabase();

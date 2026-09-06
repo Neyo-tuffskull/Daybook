@@ -9,7 +9,8 @@
     "start": "node dist/main.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
-    "lint": "eslint src"
+    "test:integration": "dotenv -e ../../.env -- vitest run --config vitest.integration.config.ts",
+    "lint": "eslint src test"
   },
   "dependencies": {
     "@daybook/contracts": "workspace:*",
@@ -17,6 +18,7 @@
     "@daybook/domain": "workspace:*",
     "@fastify/cookie": "^10.0.0",
     "@fastify/helmet": "^12.0.0",
+    "@fastify/rate-limit": "^10.2.0",
     "@nestjs/common": "^11.0.0",
     "@nestjs/core": "^11.0.0",
     "@nestjs/platform-fastify": "^11.0.0",
@@ -30,9 +32,10 @@
   "devDependencies": {
     "@nestjs/cli": "^11.0.0",
     "@nestjs/testing": "^11.0.0",
+    "@swc/core": "^1.10.0",
     "@types/node": "^22.10.0",
     "dotenv-cli": "^8.0.0",
-    "supertest": "^7.0.0",
+    "unplugin-swc": "^1.5.1",
     "vitest": "^3.0.0"
   }
 }

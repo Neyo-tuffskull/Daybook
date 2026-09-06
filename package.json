@@ -12,9 +12,10 @@
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "test:e2e": "playwright test",
-    "db:bootstrap": "psql -v ON_ERROR_STOP=1 -d $DATABASE_NAME -f packages/db/migrations/0000_bootstrap/bootstrap.sql",
-    "db:migrate": "prisma migrate deploy --schema packages/db/prisma/schema.prisma",
-    "db:smoke": "psql -v ON_ERROR_STOP=1 -d $DATABASE_NAME -f packages/db/tests/schema_smoke.sql",
+    "db:migrate": "pnpm --filter @daybook/db db:migrate",
+    "db:migrate:test": "pnpm --filter @daybook/db db:migrate:test",
+    "db:smoke": "pnpm --filter @daybook/db db:smoke",
+    "test:integration": "pnpm --filter @daybook/api test:integration",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },

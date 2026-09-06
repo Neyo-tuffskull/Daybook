@@ -60,28 +60,146 @@ export type ApiError = z.infer<typeof apiError>;
 
 // --- Auth ------------------------------------------------------------------
 
-export const registerRequest = z.object({
-  email: z.string().email().max(320),
-  password: z.string().min(12).max(200),
-  display_name: z.string().min(1).max(80).optional(),
-  timezone: z.string().min(1).max(64),
-});
+/** Which of the two apps a session belongs to. Both share one identity. */
+export const sessionClient = z.enum(['daybook', 'fitness']);
+export type SessionClient = z.infer<typeof sessionClient>;
 
-export const loginRequest = z.object({
-  email: z.string().email().max(320),
-  password: z.string().min(1).max(200),
-});
+/**
+ * Twelve characters, and no composition rules.
+ *
+ * Length beats character classes: "Tr0ub4dor&3" satisfies every upper, lower,
+ * digit and symbol rule and is weaker than "correct horse battery staple".
+ * Composition rules mostly teach people to put an exclamation mark on the end.
+ * The upper bound exists because Argon2 hashes whatever it is given and a
+ * megabyte-long password is a denial-of-service request, not a password.
+ */
+export const password = z.string().min(12).max(200);
 
+export const registerRequest = z
+  .object({
+    email: z.string().email().max(320),
+    password,
+    display_name: z.string().min(1).max(80).optional(),
+    timezone: z.string().min(1).max(64),
+    client: sessionClient.default('daybook'),
+  })
+  .strict();
+
+export const loginRequest = z
+  .object({
+    email: z.string().email().max(320),
+    // Not `password`: rejecting a short password at login would tell an
+    // attacker that short passwords exist, and would lock out any account
+    // created before a future rule change.
+    password: z.string().min(1).max(200),
+    client: sessionClient.default('daybook'),
+  })
+  .strict();
+
+/**
+ * What a successful sign-in returns.
+ *
+ * The refresh token is deliberately absent: it goes back as an HttpOnly,
+ * SameSite=Lax, Secure cookie that JavaScript cannot read, so a cross-site
+ * script that steals the access token gets ten minutes rather than thirty days.
+ * The short-lived access token is returned in the body because the client has
+ * to attach it to an Authorization header.
+ */
 export const sessionResponse = z.object({
   access_token: z.string(),
+  token_type: z.literal('Bearer'),
   expires_in: z.number().int().positive(),
   user: z.object({
     id: uuid,
     email: z.string().email(),
+    email_verified: z.boolean(),
     display_name: z.string().nullable(),
     timezone: z.string(),
   }),
 });
+export type SessionResponse = z.infer<typeof sessionResponse>;
+
+/**
+ * Refresh takes no body at all: the cookie is the whole request.
+ *
+ * It deliberately does not accept a `client`. A refresh continues the session
+ * that already exists, and that session already knows which app started it;
+ * letting the caller restate it would let a client relabel somebody else's
+ * session in the "signed in here" list. This is also why both apps share one
+ * sign-in: the cookie is set on the API's origin, so opening Fitness after
+ * signing in to Daybook is a refresh, not a second login.
+ */
+export const refreshRequest = z.object({}).strict();
+
+export const logoutRequest = z
+  .object({
+    /** True ends every session on every device, not just this one. */
+    everywhere: z.boolean().default(false),
+  })
+  .strict();
+
+export const verifyEmailRequest = z.object({ token: z.string().min(16).max(200) }).strict();
+
+export const requestPasswordResetRequest = z
+  .object({ email: z.string().email().max(320) })
+  .strict();
+
+export const resetPasswordRequest = z
+  .object({ token: z.string().min(16).max(200), password })
+  .strict();
+
+export const changePasswordRequest = z
+  .object({ current_password: z.string().min(1).max(200), new_password: password })
+  .strict();
+
+/**
+ * Endpoints that must not reveal whether an account exists.
+ *
+ * Registration, password reset requests and email verification all answer the
+ * same way whether or not the address is on file. Anything else turns the form
+ * into a tool for discovering who has an account here.
+ */
+export const acknowledgement = z.object({ status: z.literal('ok'), message: z.string() });
+
+export const activeSession = z.object({
+  id: uuid,
+  client: sessionClient,
+  issued_at: instant,
+  expires_at: instant,
+  current: z.boolean(),
+});
+export const activeSessionsResponse = z.object({ sessions: z.array(activeSession) });
+
+// --- Profile ---------------------------------------------------------------
+
+export const meResponse = z.object({
+  id: uuid,
+  email: z.string().email(),
+  email_verified: z.boolean(),
+  display_name: z.string().nullable(),
+  avatar_url: z.string().nullable(),
+  timezone: z.string(),
+  locale: z.string(),
+  week_start_day: z.number().int().min(1).max(7),
+  weight_unit: z.enum(['kg', 'lb']),
+  distance_unit: z.enum(['km', 'mi']),
+  theme: z.enum(['system', 'light', 'dark']),
+});
+export type Me = z.infer<typeof meResponse>;
+
+export const updateProfileRequest = z
+  .object({
+    display_name: z.string().min(1).max(80).nullable(),
+    timezone: z.string().min(1).max(64),
+    locale: z.string().min(2).max(10),
+    week_start_day: z.number().int().min(1).max(7),
+    weight_unit: z.enum(['kg', 'lb']),
+    distance_unit: z.enum(['km', 'mi']),
+    theme: z.enum(['system', 'light', 'dark']),
+  })
+  .partial()
+  .strict()
+  .refine((v) => Object.keys(v).length > 0, { message: 'nothing to update' });
 
 // --- Activities ------------------------------------------------------------
 

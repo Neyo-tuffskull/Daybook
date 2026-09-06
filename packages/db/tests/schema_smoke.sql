@@ -23,9 +23,12 @@ INSERT INTO users (id, email, password_hash)
 VALUES ('11111111-1111-1111-1111-111111111111', 'ada@example.com', 'argon2-placeholder'),
        ('22222222-2222-2222-2222-222222222222', 'grace@example.com', 'argon2-placeholder');
 
-INSERT INTO user_profiles (user_id, display_name, timezone)
-VALUES ('11111111-1111-1111-1111-111111111111', 'Ada', 'Africa/Lagos'),
-       ('22222222-2222-2222-2222-222222222222', 'Grace', 'Europe/London');
+-- Updated, not inserted: migration 0003 gives every new user their profile row
+-- in the same transaction as the user. Assertion 16 checks that it did.
+UPDATE user_profiles SET display_name = 'Ada', timezone = 'Africa/Lagos'
+ WHERE user_id = '11111111-1111-1111-1111-111111111111';
+UPDATE user_profiles SET display_name = 'Grace', timezone = 'Europe/London'
+ WHERE user_id = '22222222-2222-2222-2222-222222222222';
 
 INSERT INTO activity_categories (id, user_id, name, color, is_system, is_fitness)
 VALUES ('33333333-3333-3333-3333-333333333333', NULL, 'Fitness', '#2F44C8', true, true);
@@ -350,6 +353,97 @@ BEGIN
 END $$;
 
 RESET ROLE;
+
+-- ---------------------------------------------------------------------------
+-- 16. Creating a user creates its companion rows, atomically
+-- ---------------------------------------------------------------------------
+-- Both fixture users were inserted with a bare INSERT INTO users at the top of
+-- this file. Nothing here created a profile, a preferences row or a
+-- notification row, so if they exist the trigger from migration 0003 made them.
+DO $$
+DECLARE profiles int; prefs int; notifs int;
+BEGIN
+  SELECT count(*) INTO profiles FROM user_profiles
+    WHERE user_id = '11111111-1111-1111-1111-111111111111';
+  SELECT count(*) INTO prefs FROM user_preferences
+    WHERE user_id = '11111111-1111-1111-1111-111111111111';
+  SELECT count(*) INTO notifs FROM notification_preferences
+    WHERE user_id = '11111111-1111-1111-1111-111111111111';
+  IF profiles <> 1 OR prefs <> 1 OR notifs <> 1 THEN
+    RAISE EXCEPTION 'FAIL: companion rows were %, %, %, expected 1 each',
+      profiles, prefs, notifs;
+  END IF;
+  RAISE NOTICE 'ok 16 a new user gets profile, preferences and notification rows';
+END $$;
+
+-- ---------------------------------------------------------------------------
+-- 17. The auth role holds credentials and nothing more
+-- ---------------------------------------------------------------------------
+-- Assertion 14 checks the wall from the application side. This checks it from
+-- the other side: daybook_auth exists to read and write credentials, and the
+-- reason migration 0003 uses a trigger rather than application code is so that
+-- this role never needs to reach a profile table. If that ever changes by
+-- accident, this fails.
+DO $$
+DECLARE overreach text;
+BEGIN
+  SELECT string_agg(t, ', ') INTO overreach
+  FROM unnest(ARRAY['user_profiles', 'user_preferences', 'notification_preferences',
+                    'activities', 'workout_sessions', 'habits', 'journal_entries']) AS t
+  WHERE has_table_privilege('daybook_auth', t, 'SELECT');
+  IF overreach IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL: daybook_auth can read non-credential tables: %', overreach;
+  END IF;
+
+  IF NOT has_table_privilege('daybook_auth', 'auth_sessions', 'INSERT')
+     OR NOT has_table_privilege('daybook_auth', 'users', 'SELECT') THEN
+    RAISE EXCEPTION 'FAIL: daybook_auth cannot do its own job';
+  END IF;
+  RAISE NOTICE 'ok 17 auth role reaches credentials and users, nothing else';
+END $$;
+
+-- ---------------------------------------------------------------------------
+-- 18. A refresh token hash is unique, and dead sessions can be pruned
+-- ---------------------------------------------------------------------------
+INSERT INTO auth_sessions (id, user_id, family_id, refresh_token_hash, expires_at, client)
+VALUES ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+        '11111111-1111-1111-1111-111111111111',
+        'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+        digest('live-token', 'sha256'), now() + interval '30 days', 'daybook');
+
+DO $$
+DECLARE pruned int; survivors int;
+BEGIN
+  BEGIN
+    INSERT INTO auth_sessions (user_id, family_id, refresh_token_hash, expires_at, client)
+    VALUES ('11111111-1111-1111-1111-111111111111',
+            'cccccccc-cccc-cccc-cccc-cccccccccccc',
+            digest('live-token', 'sha256'), now() + interval '30 days', 'fitness');
+    RAISE EXCEPTION 'FAIL: two sessions accepted the same refresh token hash';
+  EXCEPTION WHEN unique_violation THEN
+    NULL;
+  END;
+
+  -- An expired session from well beyond the retention window, plus the live one.
+  INSERT INTO auth_sessions (user_id, family_id, refresh_token_hash, issued_at,
+                             expires_at, client)
+  VALUES ('11111111-1111-1111-1111-111111111111',
+          'dddddddd-dddd-dddd-dddd-dddddddddddd',
+          digest('stale-token', 'sha256'), now() - interval '200 days',
+          now() - interval '170 days', 'daybook');
+
+  SELECT prune_auth_sessions() INTO pruned;
+  IF pruned < 1 THEN
+    RAISE EXCEPTION 'FAIL: prune_auth_sessions removed % rows, expected at least 1', pruned;
+  END IF;
+
+  SELECT count(*) INTO survivors FROM auth_sessions
+    WHERE id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+  IF survivors <> 1 THEN
+    RAISE EXCEPTION 'FAIL: pruning deleted a live session';
+  END IF;
+  RAISE NOTICE 'ok 18 refresh hashes are unique and dead sessions prune cleanly';
+END $$;
 
 -- ---------------------------------------------------------------------------
 -- Leave nothing behind

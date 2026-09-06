@@ -123,13 +123,27 @@ echo "AUTH_JWT_PUBLIC_KEY_B64=$(base64 -w0 public.pem)"
 rm private.pem public.pem
 ```
 
+Windows machines usually have no `openssl`, and Node can do it without writing
+a private key to disk at all, which is the better habit anyway:
+
+```powershell
+node -e "const c=require('crypto');const{publicKey,privateKey}=c.generateKeyPairSync('ed25519');console.log('AUTH_JWT_PRIVATE_KEY_B64='+Buffer.from(privateKey.export({type:'pkcs8',format:'pem'})).toString('base64'));console.log('AUTH_JWT_PUBLIC_KEY_B64='+Buffer.from(publicKey.export({type:'spki',format:'pem'})).toString('base64'))"
+```
+
+`AUTH_JWT_KEY_ID` names the key inside every token it signs. Changing keys
+means publishing the new one, switching the signer, and only then retiring the
+old one; without an id in the header, every token issued under the old key dies
+the instant the new one takes over.
+
 **Database passwords.** Three connection strings, three roles, on purpose:
 
 - `DATABASE_URL` connects as `daybook_app`. It owns nothing, so row-level security applies to it, and it has no access at all to the credential tables.
 - `DATABASE_AUTH_URL` connects as `daybook_auth`. It can reach `users`, `auth_identities` and the token tables, because a login has to find an account before anyone is authenticated.
-- `DATABASE_MIGRATION_URL` connects as the owner. Used by migrations only, never by a running service.
+- `DATABASE_MIGRATION_URL` connects as the owner. Migrations, introspection and the schema assertions use it. No running service ever does.
 
 A single superuser URL for everything would work and would throw away the protection. Set real passwords with `ALTER ROLE daybook_app WITH PASSWORD '...'`.
+
+`DATABASE_MIGRATION_URL` is not optional, and the tooling will not quietly fall back to `DATABASE_URL` when it is missing. Prisma reads one connection string, and if that string is the application role then `pnpm db:migrate` tries to create tables as a role that cannot create tables. `packages/db/scripts/as-owner.mjs` substitutes the owner URL for the duration of one command, prints which role and database it connected as, and refuses to run at all if the variable is absent. Every `db:` script goes through it.
 
 **VAPID keys** for web push are only needed from Phase 11.
 
@@ -143,7 +157,11 @@ A single superuser URL for everything would work and would throw away the protec
 | `pnpm lint`                          | ESLint, including the rule that keeps `packages/domain` framework-free |
 | `pnpm typecheck`                     | TypeScript, strict, no emit                                            |
 | `pnpm format`                        | Prettier                                                               |
-| `pnpm --filter @daybook/db db:smoke` | The 15 schema assertions, via Prisma, no psql needed                   |
+| `pnpm db:migrate`                    | Applies pending migrations in order, as the owner, and records them    |
+| `pnpm db:migrate --status`           | What is applied, what is not                                           |
+| `pnpm db:smoke`                      | The 18 schema assertions, via Prisma, no psql needed                   |
+| `pnpm db:migrate:test`               | The same migrations against the test database                          |
+| `pnpm test:integration`              | The auth suite. Needs a test database, see §7                          |
 | `pnpm --filter @daybook/domain test` | Domain tests alone. Needs no install, no flags, no build step          |
 
 That last one is worth knowing: the domain package has no dependencies, so its tests run on a fresh checkout before `pnpm install` finishes.
@@ -175,7 +193,11 @@ This section is that accounting, kept honest rather than optimistic.
 
 ### Still not verified
 
-- CI on GitHub, which needs a repository to run in
+- **Everything in Phase 3a.** Written 2026-09-04 and not yet run: no install
+  with the new dependencies, no lint, no typecheck, no build, and the auth
+  integration suite has never executed. Until it does, the authentication
+  described in this repository is a design, not a working system.
+- The three new schema assertions, 16 to 18, and migration 0003
 - Docker Compose, since the local path was not used
 - Playwright, which arrives with the journeys it will test in Phase 9
 
@@ -276,3 +298,72 @@ own first also helps:
 
 **`bad option: --experimental-strip-types`**
 That flag was removed in Node 26, because type stripping became the default and then stable. Run `node --test 'test/*.test.ts'` with no flag. If you are on a Node older than 22.18, upgrade rather than adding the flag back.
+
+---
+
+## 7. The test database
+
+The integration tests create accounts, change passwords and revoke sessions.
+They get their own database, because a suite that can do that to the database
+you develop against will eventually do it on the wrong afternoon.
+
+Three guards, in order. `TEST_DATABASE_URL` must be set, must differ from
+`DATABASE_URL`, and must have the word `test` in it; the suite refuses to start
+otherwise. The cleanup only ever deletes accounts whose address ends
+`@daybook.test`.
+
+**On a managed provider.** Create a second database in the same project. The
+roles are project-wide, so `daybook_app` and `daybook_auth` already exist and
+the bootstrap is close to a no-op, but run it anyway: it is idempotent and it
+grants the role membership the tenant-isolation assertion needs.
+
+Add three connection strings to `.env`, pointing at the new database rather
+than the development one:
+
+```
+TEST_DATABASE_URL=postgresql://daybook_app:...@.../daybook_test?sslmode=require
+TEST_DATABASE_AUTH_URL=postgresql://daybook_auth:...@.../daybook_test?sslmode=require
+TEST_DATABASE_MIGRATION_URL=postgresql://<owner>:...@.../daybook_test?sslmode=require
+```
+
+Then:
+
+```bash
+pnpm db:migrate:test          # bootstrap and every migration, in order
+pnpm --filter @daybook/db db:smoke:test
+pnpm test:integration
+```
+
+### The migration ledger
+
+`db:migrate` records what it has applied in a `schema_migrations` table, so it
+applies each file once and no more. Neither application role can read it.
+
+The migrations are not all re-runnable: `0001_init` is plain `CREATE TABLE` and
+stops at the first table that already exists. Making them re-runnable would
+mean `IF NOT EXISTS` everywhere, which accepts an existing table with the wrong
+columns without complaint, and which `CREATE POLICY` does not support at all.
+Recording what ran is both simpler and stricter.
+
+The recorded checksum is checked on every run. Editing an already-applied
+migration fails, because at that point the database and the repository disagree
+and the file no longer describes what is actually there. Add a new migration
+instead.
+
+**Adopting a database that predates the ledger.** If the tables were created
+before this runner existed, tell it where things stand rather than letting it
+guess:
+
+```bash
+pnpm --filter @daybook/db db:migrate --baseline=0002_app_grants
+pnpm db:migrate
+```
+
+The first records everything up to and including that migration without running
+any of it. The second applies whatever comes after.
+
+The suite mints its own throwaway signing keypair per run, so no key from
+`.env` is used and none is needed in CI. It also drops the Argon2 parameters to
+the lowest the configuration will accept, because these tests are about the
+protocol around the hash rather than the hash itself; real parameters would add
+about a second to every sign-in in the suite.
