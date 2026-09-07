@@ -54,62 +54,166 @@ Every error, without exception, is shaped like this:
 
 ### 1.2 Rate limits
 
-| Scope                                                        | Limit                                      |
-| ------------------------------------------------------------ | ------------------------------------------ |
-| `POST /auth/login`, `/auth/register`, `/auth/password-reset` | 5 per 15 min per IP, 10 per hour per email |
-| `POST /auth/refresh`                                         | 60 per hour per session family             |
-| Authenticated general                                        | 300 per minute per user                    |
-| Analytics endpoints                                          | 60 per minute per user                     |
-| Export requests                                              | 3 per day per user                         |
+Per caller, in two budgets with separate counters, so ordinary API traffic
+cannot consume the sign-in allowance.
+
+| Scope                                   | Limit                                               | State            |
+| --------------------------------------- | --------------------------------------------------- | ---------------- |
+| Every non-`GET` route under `/auth`     | `AUTH_RATE_LIMIT_PER_MINUTE`, 10 by default, per IP | **built**        |
+| Everything else                         | 300 per minute per IP                               | **built**        |
+| `/healthz`, `/readyz`                   | exempt                                              | **built**        |
+| Per-email and per-session-family limits |                                                     | Phase 14         |
+| Analytics and export limits             |                                                     | Phases 10 and 13 |
+
+Counters live in memory, which makes the limit per instance. That is correct
+for one instance and wrong for several; it moves to Redis when the API is
+actually scaled out. Decision D12.
+
+The IP is hashed before it becomes a counter key, so the store is not a list of
+who used the API today.
 
 ---
 
 ## 2. Authentication
 
-| Method | Path                           | Purpose                                                           |
-| ------ | ------------------------------ | ----------------------------------------------------------------- |
-| POST   | `/auth/register`               | create account, send verification email                           |
-| POST   | `/auth/login`                  | issue access token + set refresh cookie                           |
-| POST   | `/auth/refresh`                | rotate refresh token, issue new access token                      |
-| POST   | `/auth/logout`                 | revoke the current session                                        |
-| POST   | `/auth/logout-all`             | revoke every session for the user                                 |
-| POST   | `/auth/password-reset/request` | always returns 202, regardless of whether the email exists        |
-| POST   | `/auth/password-reset/confirm` | consume token, set password, revoke all sessions                  |
-| POST   | `/auth/verify-email`           | consume verification token                                        |
-| GET    | `/auth/sessions`               | list active sessions with client, last used, approximate location |
-| DELETE | `/auth/sessions/:id`           | revoke one session                                                |
+| Method | Path                        | Purpose                                                        | State     |
+| ------ | --------------------------- | -------------------------------------------------------------- | --------- |
+| POST   | `/auth/register`            | create account, sign in, send verification link                | **built** |
+| POST   | `/auth/login`               | issue access token, set refresh cookie                         | **built** |
+| POST   | `/auth/refresh`             | rotate refresh token, issue new access token                   | **built** |
+| POST   | `/auth/logout`              | end this session, or every session with `{"everywhere": true}` | **built** |
+| GET    | `/auth/sessions`            | list live sessions, marking the current one                    | **built** |
+| POST   | `/auth/verify-email`        | consume a verification token                                   | **built** |
+| POST   | `/auth/verify-email/resend` | issue a fresh link, invalidating the previous one              | **built** |
+| POST   | `/auth/password/forgot`     | always 202, whether or not the address exists                  | **built** |
+| POST   | `/auth/password/reset`      | consume token, set password, end every session                 | **built** |
+| POST   | `/auth/password/change`     | signed in, requires the current password                       | **built** |
+| GET    | `/auth/google`              | begin OIDC, Authorization Code with PKCE                       | **built** |
+| GET    | `/auth/google/callback`     | complete OIDC, link or create the account                      | **built** |
+| DELETE | `/auth/sessions/:id`        | end one named session from the device list                     | Phase 4   |
+
+Sign-out everywhere is a flag on `/auth/logout` rather than a second endpoint,
+because it is the same operation over a different set of rows, and two paths
+that must stay in step is one more thing to get wrong.
 
 `POST /auth/login` request and response:
 
 ```jsonc
 // request
-{ "email": "user@example.com", "password": "..." }
+{ "email": "user@example.com", "password": "...", "client": "daybook" }
 
 // 200
 {
   "access_token": "eyJ...",
+  "token_type": "Bearer",
   "expires_in": 600,
-  "user": { "id": "...", "email": "...", "display_name": "Ore", "timezone": "Africa/Lagos" }
+  "user": {
+    "id": "...",
+    "email": "...",
+    "email_verified": false,
+    "display_name": "Ore",
+    "timezone": "Africa/Lagos"
+  }
 }
-// plus Set-Cookie: db_rt=<opaque>; HttpOnly; Secure; SameSite=Lax; Domain=.daybook.app; Path=/v1/auth
+// plus Set-Cookie: db_rt=<opaque>; HttpOnly; Secure; SameSite=Lax; Path=/v1/auth
 ```
 
-Login responses are constant-time and identical in shape whether the account exists, the password is wrong, or the account is locked, so the endpoint cannot be used to enumerate accounts.
+The refresh token never appears in a response body. It is an `HttpOnly` cookie
+scoped to `/v1/auth`, so it rides on the three endpoints that need it rather
+than on every request the app makes for the next thirty days, and a
+cross-site script that steals the access token gets ten minutes rather than a
+month.
+
+`POST /auth/refresh` takes no body. It deliberately does not accept a `client`:
+a refresh continues a session that already knows which app started it, and
+accepting one would let a caller relabel a session in somebody else's device
+list. This is also how one sign-in covers both apps. Both frontends call the
+same API origin, so opening Fitness after signing in to Daybook is a refresh,
+not a second login.
+
+**What each failure says.** Login answers identically whether the address is
+unknown, the password is wrong, or the account is suspended, and takes the same
+time in all three cases: an unknown address is still verified against a decoy
+hash. Refresh answers identically whether the token is unknown, expired,
+revoked, or has been detected as reused, because telling an attacker their
+theft was noticed helps only them. Registration is the exception and says when
+an address is taken; decision D11 explains why.
+
+**Refresh token reuse.** Presenting a token that has already been rotated
+revokes the entire family, which is every token in that chain of rotations
+back to the sign-in that started it. Both the legitimate user and whoever else
+has a copy must sign in again. That is the correct trade: signing in again
+costs a moment, and leaving a thief with a live session does not.
+
+### 2.1 Google sign-in
+
+`GET /auth/google` redirects to Google. `?client=fitness` marks the resulting
+session as belonging to the Fitness app; anything else means Daybook.
+
+`GET /auth/google/callback` is the redirect URI registered with Google. It
+answers with a redirect and never a body:
+
+| Outcome       | Redirect                                                |
+| ------------- | ------------------------------------------------------- |
+| Signed in     | `APP_PUBLIC_URL/auth/callback`, plus the refresh cookie |
+| Anything else | `APP_PUBLIC_URL/sign-in?error=<code>`                   |
+
+The error codes are `cancelled`, `expired`, `invalid_state`, `provider_error`,
+`unverified_email` and `account_unavailable`. They are codes rather than
+sentences because this URL lands in browser history, and the detail belongs in
+the logs.
+
+**The callback returns no token.** It sets the refresh cookie and redirects, and
+the app then calls `/auth/refresh` like any other page load. Putting an access
+token in the redirect would be simpler and would write a credential into the
+browser history, the referrer of whatever the page loads next, and any proxy log
+in between.
+
+**The API is the OAuth client, not the frontend.** A browser cannot keep a
+client secret, so the code exchange happens server to server and the redirect
+URI points at the API.
+
+**Account linking.** The lookup is on Google's subject id, never on the email
+address: a subject id is stable and belongs to the provider, while an address
+can be changed, released and re-registered by somebody else. An unknown subject
+is attached to an existing account **only** when Google asserts
+`email_verified`. That assertion is the same assurance our own verification link
+provides, and without it, registering somebody else's address at a provider that
+does not check would be account takeover in two steps. A refusal is not a dead
+end: the person can sign in with their password and link the account
+deliberately from settings, which is a Phase 13 screen.
+
+An account created through Google has no password. Its owner can set one with
+the ordinary password-reset flow, which proves control of the address.
+
+**Not configured is not the same as not built.** With no
+`GOOGLE_OAUTH_CLIENT_ID` and `GOOGLE_OAUTH_CLIENT_SECRET`, both routes answer
+503 rather than 404.
 
 ---
 
 ## 3. Profile and preferences
 
-| Method | Path                | Purpose                                                                   |
-| ------ | ------------------- | ------------------------------------------------------------------------- |
-| GET    | `/me`               | profile, preferences, notification settings in one payload                |
-| PATCH  | `/me/profile`       | display name, timezone, week start, wake/sleep targets, units, theme      |
-| PATCH  | `/me/preferences`   | score weights, analytics start of day                                     |
-| PATCH  | `/me/notifications` | reminder toggles, lead times, quiet hours                                 |
-| POST   | `/me/avatar`        | signed upload                                                             |
-| POST   | `/me/export`        | request a JSON or CSV export, returns a job id                            |
-| GET    | `/me/export/:id`    | status, then a short-lived download URL                                   |
-| DELETE | `/me`               | schedule account deletion, requires password re-entry, 7 day grace period |
+| Method | Path                | Purpose                                                  | State     |
+| ------ | ------------------- | -------------------------------------------------------- | --------- |
+| GET    | `/me`               | the signed-in person's account and profile               | **built** |
+| PATCH  | `/me`               | display name, timezone, locale, week start, units, theme | **built** |
+| GET    | `/me/preferences`   | score weights, analytics start of day                    | Phase 10  |
+| PATCH  | `/me/preferences`   |                                                          | Phase 10  |
+| PATCH  | `/me/notifications` | reminder toggles, lead times, quiet hours                | Phase 11  |
+| POST   | `/me/avatar`        | signed upload                                            | Phase 13  |
+| POST   | `/me/export`        | request a JSON or CSV export, returns a job id           | Phase 13  |
+| GET    | `/me/export/:id`    | status, then a short-lived download URL                  | Phase 13  |
+| DELETE | `/me`               | schedule deletion, requires the password, 7 day grace    | Phase 13  |
+
+No endpoint here takes a user id. It comes from the verified access token, and
+the queries run under row-level security as that user, so there is no request
+that reaches another person's row: not a missing `WHERE` clause, not an id in a
+path, not an extra field in a body. The request schemas are strict, so a body
+carrying `user_id` is rejected with 422 rather than ignored.
+
+`PATCH /me` distinguishes an absent field from an explicit `null`. Omitting
+`display_name` leaves it alone; sending `"display_name": null` clears it.
 
 ---
 

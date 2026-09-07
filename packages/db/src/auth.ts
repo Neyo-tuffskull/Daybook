@@ -16,7 +16,7 @@
  * the column names. Every value is a bound parameter; no string is ever
  * concatenated into a statement.
  */
-import { authDb } from './clients.ts';
+import { authDb, TRANSACTION_OPTIONS } from './clients.ts';
 import type { Prisma } from './clients.ts';
 
 /** Any Prisma client or transaction. Lets a caller compose several calls atomically. */
@@ -32,7 +32,7 @@ export type AuthClient =
  * succeed and the second one looks like token theft.
  */
 export function authTransaction<T>(work: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
-  return authDb.$transaction(work);
+  return authDb.$transaction(work, TRANSACTION_OPTIONS);
 }
 
 // --- Users -----------------------------------------------------------------
@@ -358,6 +358,98 @@ export function invalidateOutstandingTokens(
   return client.$executeRaw`
     UPDATE password_reset_tokens SET used_at = now()
      WHERE user_id = ${userId}::uuid AND used_at IS NULL`;
+}
+
+// --- Federated identities --------------------------------------------------
+
+export type IdentityProvider = 'google' | 'apple';
+
+export interface IdentityRow {
+  id: string;
+  user_id: string;
+  provider: IdentityProvider;
+  provider_account_id: string;
+  email_at_provider: string | null;
+}
+
+/**
+ * Finds an identity by what the provider calls the account.
+ *
+ * The lookup is on the provider's subject id, never on the email address. A
+ * subject id is stable and belongs to the provider; an email address can be
+ * changed at the provider, released and re-registered by somebody else, or
+ * simply be an alias. Matching on it is how one person ends up signed in to
+ * another person's account.
+ */
+export async function findIdentity(
+  provider: IdentityProvider,
+  providerAccountId: string,
+  client: AuthClient = authDb,
+): Promise<IdentityRow | null> {
+  const rows = await client.$queryRaw<IdentityRow[]>`
+    SELECT id, user_id, provider, provider_account_id,
+           email_at_provider::text AS email_at_provider
+      FROM auth_identities
+     WHERE provider = ${provider}
+       AND provider_account_id = ${providerAccountId}
+     LIMIT 1`;
+  return rows[0] ?? null;
+}
+
+/** Every identity a user has, for the account settings page. */
+export function listIdentities(
+  userId: string,
+  client: AuthClient = authDb,
+): Promise<IdentityRow[]> {
+  return client.$queryRaw<IdentityRow[]>`
+    SELECT id, user_id, provider, provider_account_id,
+           email_at_provider::text AS email_at_provider
+      FROM auth_identities
+     WHERE user_id = ${userId}::uuid
+     ORDER BY linked_at`;
+}
+
+/**
+ * Attaches a provider account to a user.
+ *
+ * Returns null when that provider account is already attached to somebody,
+ * rather than throwing, because two people racing the same sign-in is an
+ * ordinary outcome and the caller has to handle it either way.
+ */
+export async function linkIdentity(
+  input: {
+    userId: string;
+    provider: IdentityProvider;
+    providerAccountId: string;
+    emailAtProvider: string | null;
+  },
+  client: AuthClient = authDb,
+): Promise<IdentityRow | null> {
+  const rows = await client.$queryRaw<IdentityRow[]>`
+    INSERT INTO auth_identities
+      (user_id, provider, provider_account_id, email_at_provider, last_login_at)
+    VALUES (${input.userId}::uuid, ${input.provider}, ${input.providerAccountId},
+            ${input.emailAtProvider}::citext, now())
+    ON CONFLICT (provider, provider_account_id) DO NOTHING
+    RETURNING id, user_id, provider, provider_account_id,
+              email_at_provider::text AS email_at_provider`;
+  return rows[0] ?? null;
+}
+
+/**
+ * Records a sign-in through this identity, and keeps the provider's idea of
+ * the address current so the settings page can show which account it is.
+ */
+export function touchIdentity(
+  identityId: string,
+  emailAtProvider: string | null,
+  client: AuthClient = authDb,
+): Promise<number> {
+  return client.$executeRaw`
+    UPDATE auth_identities
+       SET last_login_at = now(),
+           email_at_provider = COALESCE(${emailAtProvider}::citext, email_at_provider)
+     WHERE id = ${identityId}::uuid`;
 }
 
 function toBufferOrNull(value: Uint8Array | null): Buffer | null {

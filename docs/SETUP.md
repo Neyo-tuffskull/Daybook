@@ -149,20 +149,21 @@ A single superuser URL for everything would work and would throw away the protec
 
 ## 4. Everyday commands
 
-| Command                              | What it does                                                           |
-| ------------------------------------ | ---------------------------------------------------------------------- |
-| `pnpm dev`                           | All four services, watching                                            |
-| `pnpm test`                          | Unit tests across the workspace                                        |
-| `pnpm test:e2e`                      | Playwright, desktop and mobile viewports                               |
-| `pnpm lint`                          | ESLint, including the rule that keeps `packages/domain` framework-free |
-| `pnpm typecheck`                     | TypeScript, strict, no emit                                            |
-| `pnpm format`                        | Prettier                                                               |
-| `pnpm db:migrate`                    | Applies pending migrations in order, as the owner, and records them    |
-| `pnpm db:migrate --status`           | What is applied, what is not                                           |
-| `pnpm db:smoke`                      | The 18 schema assertions, via Prisma, no psql needed                   |
-| `pnpm db:migrate:test`               | The same migrations against the test database                          |
-| `pnpm test:integration`              | The auth suite. Needs a test database, see §7                          |
-| `pnpm --filter @daybook/domain test` | Domain tests alone. Needs no install, no flags, no build step          |
+| Command                                | What it does                                                                |
+| -------------------------------------- | --------------------------------------------------------------------------- |
+| `pnpm dev`                             | All four services, watching                                                 |
+| `pnpm test`                            | Unit tests across the workspace                                             |
+| `pnpm test:e2e`                        | Playwright, desktop and mobile viewports                                    |
+| `pnpm lint`                            | ESLint, including the rule that keeps `packages/domain` framework-free      |
+| `pnpm typecheck`                       | TypeScript, strict, no emit                                                 |
+| `pnpm format`                          | Prettier                                                                    |
+| `pnpm db:migrate`                      | Applies pending migrations in order, as the owner, and records them         |
+| `pnpm db:migrate --status`             | What is applied, what is not                                                |
+| `pnpm db:smoke`                        | The 18 schema assertions, via Prisma, no psql needed                        |
+| `pnpm db:migrate:test`                 | The same migrations against the test database                               |
+| `pnpm test:integration`                | The auth suite. Needs a test database, see §7                               |
+| `pnpm --filter @daybook/db db:latency` | Times the network, the server and the hash separately when things feel slow |
+| `pnpm --filter @daybook/domain test`   | Domain tests alone. Needs no install, no flags, no build step               |
 
 That last one is worth knowing: the domain package has no dependencies, so its tests run on a fresh checkout before `pnpm install` finishes.
 
@@ -191,15 +192,20 @@ This section is that accounting, kept honest rather than optimistic.
 | `prisma db pull` | Neon | 30 models introspected |
 | `pnpm dev` and `GET /v1/readyz` | Windows 11 to London | `{"status":"ok","database":"ok"}` as the restricted role |
 
+**Phase 3a, verified on managed PostgreSQL (2026-09-06):**
+
+| Check                                            | Where                | Result                                                   |
+| ------------------------------------------------ | -------------------- | -------------------------------------------------------- |
+| All four migrations applied to an empty database | Neon `daybook_test`  | Clean, first time the schema has been built from nothing |
+| 18 schema assertions                             | Neon, both databases | All pass                                                 |
+| 19 auth integration tests                        | Windows 11 to London | All pass, including both Phase 3 exit criteria           |
+
 ### Still not verified
 
-- **Everything in Phase 3a.** Written 2026-09-04 and not yet run: no install
-  with the new dependencies, no lint, no typecheck, no build, and the auth
-  integration suite has never executed. Until it does, the authentication
-  described in this repository is a design, not a working system.
-- The three new schema assertions, 16 to 18, and migration 0003
 - Docker Compose, since the local path was not used
 - Playwright, which arrives with the journeys it will test in Phase 9
+- Mail delivery: the transport is a recorder until Phase 11
+- Rate limits across more than one API instance, which needs Redis
 
 ### What the verification actually caught
 
@@ -234,6 +240,25 @@ Row-level security with no identity set. Every user-scoped query goes through `a
 
 **`ERROR: invalid IANA timezone`**
 A trigger, not a typo. Timezones are validated on write because a bad zone silently corrupts every occurrence built from it.
+
+**Everything is suddenly slow, or the integration tests time out**
+Measure before changing anything:
+
+```
+pnpm --filter @daybook/db db:latency
+```
+
+It times a bare protocol round trip to the database server, then a `SELECT 1`,
+then a transaction, then an Argon2 hash, and says which of those is carrying
+the cost. A round trip over about 250ms means the network path, and no code
+change will help. A fast round trip with a slow `SELECT 1` means the provider's
+compute is throttled, suspended or over a quota, and the provider's console is
+the next stop. Both fast, with slow requests, means we are making too many
+round trips per request, which is ours to fix.
+
+The integration suite's per-test ceiling is 90 seconds and overridable with
+`INTEGRATION_TEST_TIMEOUT_MS`. Raising it is a way to stop a slow environment
+from producing false failures, not a fix for the slowness.
 
 **`corepack : The term 'corepack' is not recognized`**
 Node stopped bundling Corepack from version 25. Use `npm install -g pnpm@9` instead; it does the same job here.

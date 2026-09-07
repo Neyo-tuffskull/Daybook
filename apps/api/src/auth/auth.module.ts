@@ -3,6 +3,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { CONFIG, configProvider } from '../config.provider.ts';
 import { AuthController } from './auth.controller.ts';
 import { AuthService } from './auth.service.ts';
+import { GoogleController } from './google.controller.ts';
 import { JwtAuthGuard } from './jwt-auth.guard.ts';
 import { ConsoleMailer, MAILER } from './mailer.ts';
 import { PasswordService } from './password.service.ts';
@@ -20,7 +21,7 @@ import { MeController } from '../me/me.controller.ts';
  * assembled without it.
  */
 @Module({
-  controllers: [AuthController, MeController],
+  controllers: [AuthController, GoogleController, MeController],
   providers: [
     configProvider,
     PasswordService,

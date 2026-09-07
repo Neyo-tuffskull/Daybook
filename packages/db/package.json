@@ -12,6 +12,8 @@
     "db:migrate:test": "dotenv -e ../../.env -- node scripts/migrate.mjs --target=test",
     "db:smoke": "dotenv -e ../../.env -- node scripts/as-owner.mjs db execute --schema prisma/schema.prisma --file tests/schema_smoke.sql",
     "db:smoke:test": "dotenv -e ../../.env -- node scripts/as-owner.mjs --target=test db execute --schema prisma/schema.prisma --file tests/schema_smoke.sql",
+    "db:latency": "dotenv -e ../../.env -- node scripts/latency.mjs",
+    "db:latency:test": "dotenv -e ../../.env -- node scripts/latency.mjs --target=test",
     "db:pull": "dotenv -e ../../.env -- node scripts/as-owner.mjs db pull && prisma format",
     "db:diff": "dotenv -e ../../.env -- node scripts/as-owner.mjs migrate diff --from-schema-datasource prisma/schema.prisma --to-schema-datamodel prisma/schema.prisma --exit-code",
     "studio": "dotenv -e ../../.env -- node scripts/as-owner.mjs studio",

@@ -98,6 +98,8 @@ export interface Injected {
   status: number;
   body: unknown;
   cookies: { name: string; value: string; expires?: Date }[];
+  /** Needed for redirects, where the whole answer is the location header. */
+  headers: Record<string, unknown>;
 }
 
 export interface CallOptions {
@@ -106,6 +108,8 @@ export interface CallOptions {
   payload?: unknown;
   accessToken?: string;
   refreshCookie?: string;
+  /** Any other cookie the request should carry, such as an in-flight OIDC flow. */
+  cookies?: Record<string, string>;
   /** Lets a test look like a different caller, so rate limits do not bleed across tests. */
   ip?: string;
 }
@@ -123,16 +127,34 @@ export async function call(harness: Harness, options: CallOptions): Promise<Inje
       url: options.url,
       headers,
       payload: options.payload === undefined ? undefined : JSON.stringify(options.payload),
-      cookies: options.refreshCookie
-        ? { [harness.config.cookieName]: options.refreshCookie }
-        : undefined,
+      cookies: {
+        ...(options.refreshCookie ? { [harness.config.cookieName]: options.refreshCookie } : {}),
+        ...options.cookies,
+      },
     });
 
   return {
     status: response.statusCode,
     body: parseBody(response.body),
     cookies: response.cookies,
+    headers: response.headers,
   };
+}
+
+/** The value a response set for a named cookie, or null if it set or cleared none. */
+export function cookieFrom(response: Injected, name: string): string | null {
+  const found = response.cookies.find((cookie) => cookie.name === name);
+  if (!found || found.value === '') return null;
+  return found.value;
+}
+
+/** Where a redirect points. */
+export function locationOf(response: Injected): string {
+  const location = response.headers.location;
+  if (typeof location !== 'string') {
+    throw new Error(`Response was ${response.status} with no location header`);
+  }
+  return location;
 }
 
 /** The refresh token a response set, or null if it cleared or never set one. */

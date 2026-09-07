@@ -14,6 +14,25 @@ import swc from 'unplugin-swc';
  * throws. It fails at the first line of the first request rather than at boot,
  * which is why it looks like an application bug rather than a build one.
  */
+/**
+ * A ceiling, not a budget.
+ *
+ * These were 30 seconds, calibrated against a database that answered in about
+ * 150 milliseconds. The same database now takes 2 to 4 seconds a round trip, so
+ * a registration doing ten of them lands at 26 to 39 seconds and the timeout
+ * became the thing that failed the test. Fifteen of sixteen failures in the run
+ * on 2026-09-06 were this and not a defect.
+ *
+ * Raising it does not make anything faster and is not meant to. It restores the
+ * property that a red test means broken code: a slow environment should produce
+ * a slow suite, which is annoying, rather than a failing one, which is a lie.
+ * Override with INTEGRATION_TEST_TIMEOUT_MS when the environment is worse still.
+ *
+ * If this number is ever load-bearing, the database is the thing to fix. Run
+ * `pnpm --filter @daybook/db db:latency` to find out where the time goes.
+ */
+const testTimeout = Number(process.env.INTEGRATION_TEST_TIMEOUT_MS ?? 90_000);
+
 export default defineConfig({
   plugins: [
     swc.vite({
@@ -30,10 +49,10 @@ export default defineConfig({
   test: {
     include: ['test/**/*.integration.test.ts'],
     setupFiles: ['./test/setup-env.ts'],
-    // Argon2 and a managed database in another country: generous, but a
-    // timeout here should mean something is wrong, not that the network sighed.
-    testTimeout: 30_000,
-    hookTimeout: 60_000,
+    testTimeout,
+    // The hooks register users and clean up after whole files, so they do
+    // several times the work of the slowest test.
+    hookTimeout: testTimeout * 2,
     // One file at a time. The tests share a database and several of them count
     // rows; running them in parallel would make failures depend on scheduling.
     fileParallelism: false,

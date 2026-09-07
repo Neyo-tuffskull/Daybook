@@ -32,6 +32,26 @@ export const authDb = new PrismaClient({
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
+ * How long a transaction may take, and how long it may wait for a connection.
+ *
+ * Prisma defaults to five seconds and two, which assume the database is next to
+ * the process. This one is deliberately not: the API runs in London beside its
+ * database in production, but in development it is a laptop talking to another
+ * country, and every statement in a transaction costs a round trip. Three
+ * statements at 1.5 seconds each is past the default before anything has gone
+ * wrong.
+ *
+ * These are ceilings, not waits. A healthy transaction finishes in
+ * milliseconds and never approaches them; they exist so that a slow network
+ * produces a slow request rather than a 500, which is a much more useful
+ * failure to have.
+ */
+export const TRANSACTION_OPTIONS = {
+  maxWait: Number(process.env.DATABASE_TRANSACTION_MAX_WAIT_MS ?? 10_000),
+  timeout: Number(process.env.DATABASE_TRANSACTION_TIMEOUT_MS ?? 20_000),
+} as const;
+
+/**
  * Runs a callback inside a transaction that carries the caller's identity, so
  * the row-level security policies apply.
  *
@@ -53,7 +73,7 @@ export async function asUser<T>(
   return db.$transaction(async (tx: Prisma.TransactionClient) => {
     await tx.$executeRaw`SELECT set_config('app.current_user_id', ${userId}, true)`;
     return work(tx);
-  });
+  }, TRANSACTION_OPTIONS);
 }
 
 /** Readiness probe for /readyz. */

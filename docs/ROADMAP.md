@@ -1,7 +1,7 @@
 # Development Roadmap, Risks and Phase State
 
-**Status:** Phases 1 and 2 complete. Phase 3a written, not yet verified.
-**Last updated:** 2026-09-04
+**Status:** Phases 1, 2 and 3 complete. Next up is Phase 4, Daybook core.
+**Last updated:** 2026-09-06
 
 This file is the session-to-session handover. Any future session should read it first to know exactly where the build stopped.
 
@@ -9,26 +9,26 @@ This file is the session-to-session handover. Any future session should read it 
 
 ## 1. Phase state
 
-| Phase | Name                          | State                      | Notes                                                                                                                                                            |
-| ----- | ----------------------------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0     | Project discovery             | **complete**               | Green field. Nothing existed. Toolchain verified.                                                                                                                |
-| 1     | Architecture                  | **complete, signed off**   | Documentation set complete. All eight decisions closed.                                                                                                          |
-| 2     | Project foundation            | **complete**               | Verified end to end on Windows 11 / Node 26 against managed PostgreSQL 16 in London. `/v1/readyz` returns ok as the restricted role. CI green on GitHub Actions. |
-| 3     | Authentication                | **3a written, unverified** | Password auth, rotation with reuse detection, verification, reset, `/me`. Nothing run yet: no install, no tests. 3b is Google sign-in.                           |
-| 4     | Daybook core                  | not started                |                                                                                                                                                                  |
-| 5     | Recurring schedules           | not started                |                                                                                                                                                                  |
-| 6     | Habits                        | not started                |                                                                                                                                                                  |
-| 7     | Journal                       | not started                |                                                                                                                                                                  |
-| 8     | Fitness app                   | not started                |                                                                                                                                                                  |
-| 9     | Daybook / Fitness integration | not started                |                                                                                                                                                                  |
-| 10    | Analytics                     | not started                |                                                                                                                                                                  |
-| 11    | Notifications                 | not started                |                                                                                                                                                                  |
-| 12    | Offline support               | not started                |                                                                                                                                                                  |
-| 13    | UI/UX polish                  | not started                |                                                                                                                                                                  |
-| 14    | Security audit                | not started                |                                                                                                                                                                  |
-| 15    | Testing                       | not started                |                                                                                                                                                                  |
-| 16    | Deployment                    | not started                |                                                                                                                                                                  |
-| 17    | Final audit                   | not started                |                                                                                                                                                                  |
+| Phase | Name                          | State                    | Notes                                                                                                                                                                                |
+| ----- | ----------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 0     | Project discovery             | **complete**             | Green field. Nothing existed. Toolchain verified.                                                                                                                                    |
+| 1     | Architecture                  | **complete, signed off** | Documentation set complete. All eight decisions closed.                                                                                                                              |
+| 2     | Project foundation            | **complete**             | Verified end to end on Windows 11 / Node 26 against managed PostgreSQL 16 in London. `/v1/readyz` returns ok as the restricted role. CI green on GitHub Actions.                     |
+| 3     | Authentication                | **complete**             | 33 integration tests pass against managed PostgreSQL 16 in London: 19 for password auth, 14 for Google sign-in against a real OIDC issuer. Both halves of the exit criterion proved. |
+| 4     | Daybook core                  | not started              |                                                                                                                                                                                      |
+| 5     | Recurring schedules           | not started              |                                                                                                                                                                                      |
+| 6     | Habits                        | not started              |                                                                                                                                                                                      |
+| 7     | Journal                       | not started              |                                                                                                                                                                                      |
+| 8     | Fitness app                   | not started              |                                                                                                                                                                                      |
+| 9     | Daybook / Fitness integration | not started              |                                                                                                                                                                                      |
+| 10    | Analytics                     | not started              |                                                                                                                                                                                      |
+| 11    | Notifications                 | not started              |                                                                                                                                                                                      |
+| 12    | Offline support               | not started              |                                                                                                                                                                                      |
+| 13    | UI/UX polish                  | not started              |                                                                                                                                                                                      |
+| 14    | Security audit                | not started              |                                                                                                                                                                                      |
+| 15    | Testing                       | not started              |                                                                                                                                                                                      |
+| 16    | Deployment                    | not started              |                                                                                                                                                                                      |
+| 17    | Final audit                   | not started              |                                                                                                                                                                                      |
 
 ---
 
@@ -262,11 +262,181 @@ enough to make an unhandled exception vanish entirely, and a 500 with nothing
 behind it anywhere is close to the worst thing an API can do. It now also goes
 to stderr with its stack outside production.
 
-**Still to prove.** None of the authentication code has been run. The integration suite in
-`apps/api/test/auth.integration.test.ts` is written and covers the exit
-criterion, but a suite that has never executed is a description, not evidence.
-Phase 3a closes when it passes against a real database, alongside lint,
-typecheck, build and the 18 schema assertions.
+**Exit criterion met (2026-09-06).** Nineteen integration tests pass against
+managed PostgreSQL 16 in London, through the real application: the same
+modules, the same global guard, the same rate limiter, the same error filter.
+The only substitution is the mail transport, which does not exist yet.
+
+Both halves of the criterion:
+
+- _A reused refresh token revokes the whole family._ The test rotates a token,
+  replays the old one, and asserts that the replay fails **and** that the
+  legitimate client's current token is dead too. Revoking only the replayed
+  token would leave a thief's copy working if the thief had been first to
+  rotate, so the assertion is on the second part.
+- _One account sees nothing of another's._ Two accounts, a row belonging to the
+  first, and the second querying through the same `asUser` path the API uses,
+  getting nothing back: not by count, not by primary key, not with the owner's
+  id in hand. Over HTTP, one account's token returns only that account.
+
+And the third thing the phase promised: signing in on one app grants a session
+on the other with no second login, because both call the same API origin and
+the refresh cookie is set there.
+
+Also proved: registration creates the companion rows through the trigger;
+sign-in answers identically for a wrong password and an address with no
+account; every route is closed unless marked public; a token signed with a
+different key is refused while being accepted by the instance that minted it;
+verification and reset links work exactly once; a reset ends every session; a
+password change requires the current password; and the rate limiter stops the
+sixth sign-in attempt from one address without touching another's.
+
+**What is still not covered.** The HTTP-level "404 for another user's resource"
+assertion waits on Phase 4, because there are no resource endpoints yet. The
+mail transport is a recorder. Rate limits are per instance.
+
+#### 3b: complete 2026-09-06
+
+Google sign-in over OpenID Connect, Authorization Code with PKCE, with the API
+as the OAuth client because a browser cannot keep a client secret.
+
+- `GET /v1/auth/google` mints state, a nonce and a PKCE verifier, keeps them in
+  a signed short-lived cookie rather than a table, and redirects to Google.
+- `GET /v1/auth/google/callback` checks the state, exchanges the code server to
+  server, and verifies the ID token's signature against Google's published keys
+  along with its issuer, audience and nonce.
+- The callback answers with a redirect and a cookie, never a token in a URL.
+- Linking matches on Google's subject id and attaches an unknown identity to an
+  existing account only when Google asserts `email_verified`.
+- A Google session is an ordinary `auth_sessions` row, so rotation, reuse
+  detection and sign-out-everywhere work on it with no code that knows where it
+  came from. That was the point of decision D8.
+- Not configuring Google gives 503 on both routes rather than 404.
+
+**Tested against an issuer, not a mock.** `apps/api/test/helpers/fake-issuer.ts`
+is a real OIDC issuer: it serves a JWKS, signs ID tokens, and can sign one with
+a key it does not publish. Mocking the client would prove the controller calls a
+function; it would say nothing about whether we check a signature, an issuer, an
+audience or a nonce, which is the entire set of things worth getting right here.
+
+**Defect 25, found by a slow afternoon (2026-09-06).** Every transaction was
+running under Prisma's default five-second ceiling, which assumes the database
+is next to the process. Ours is deliberately not: London in production, and a
+laptop talking to another country in development. On a day when the database
+answered in 1.5 seconds rather than 150 milliseconds, `asUser` exceeded five
+seconds doing three statements, and registration and sign-in returned 500.
+
+The ceiling is now 20 seconds, configurable, and there is a matching one for
+acquiring a connection. These are limits and not waits: a healthy transaction
+finishes in milliseconds. The point is that a slow network should produce a slow
+request rather than an error, because one of those is recoverable and the other
+is an outage.
+
+Worth recording alongside it: the same afternoon showed `POST /auth/register`
+taking 15 seconds against 1.4 the day before, with no code change in between.
+That is the round-trip cost described under "why the API is slow" arriving all
+at once, and it is the argument for co-locating the API with the database
+rather than a hypothetical one.
+
+**Defect 26, found by fixing defect 25 (2026-09-06).** The transaction ceiling
+came off and the suite still failed: 16 of 33, and fifteen of those sixteen
+were `Test timed out in 30000ms` rather than an assertion. The 30-second
+per-test timeout had been chosen against a database that answered in about 150
+milliseconds; the same requests were now taking 26 to 39 seconds, so the
+timeout had quietly become the binding constraint. I had predicted in writing
+that the ceiling fix would leave the tests slow rather than broken. It did not,
+because I fixed one limit and left the other one calibrated against the old
+world.
+
+The timeout is now 90 seconds and reads from `INTEGRATION_TEST_TIMEOUT_MS`. A
+larger number does not make anything faster and is not supposed to; it restores
+the property that a red test means broken code. But a number like this is a
+symptom, and accommodating it permanently would be the wrong lesson, which is
+why the next paragraph exists.
+
+**The slowness, measured at last (2026-09-06).** Three sessions produced "the
+database is slow" and three produced a guess in response, including two of mine
+telling the owner to check the Neon console. `pnpm --filter @daybook/db
+db:latency` replaced the guessing. It speaks enough of the Postgres wire
+protocol to time a bare round trip with no authentication or query in it, and
+probes three hosts against that ruler: the pooler, the compute endpoint
+directly, and an unrelated host on the open internet.
+
+Two runs, forty minutes apart, and they disagree, which is the finding.
+
+|                                    | first run        | second run |
+| ---------------------------------- | ---------------- | ---------- |
+| Round trip to the pooler           | 1,293 to 2,501ms | 145ms      |
+| Round trip to the compute          | not reached      | 155ms      |
+| Round trip to `www.cloudflare.com` | not reached      | 148ms      |
+| `SELECT 1`, median of 15           | not reached      | 156ms      |
+
+So the 26 to 39 second requests were **a transient fault on the developer
+machine's link**, not Neon, not a quota, and not anything in this repository.
+It cleared on its own. Neon's console was never going to show it, and I sent
+the owner there twice.
+
+**What the healthy numbers say, which is more useful.** Round-trip time is
+about 150ms to everything, cloudflare included, so it is the floor this machine
+sits at rather than anything about the provider. `SELECT 1` costs 156ms against
+a 145ms floor: the database itself contributes roughly ten milliseconds and is
+not a suspect in any latency question here.
+
+That makes **round-trip count the only lever in development**, and the numbers
+put a price on each one. Three worked examples from the same run:
+
+- A transaction wrapping three statements costs 775ms, which is five round
+  trips: `BEGIN`, three statements, `COMMIT`.
+- `asUser()` doing `set_config` plus one query costs 759ms. Logically two
+  statements, actually about five round trips, because Prisma's interactive
+  transactions send each statement separately.
+- The first query of a process costs 2,028ms, which is connection setup and
+  happens once.
+
+The interactive transaction is the expensive part, and it is ours rather than
+the network's. Prisma's array form, `$transaction([...])`, sends the batch in
+one round trip, which would take a single-statement user-scoped read from about
+760ms to about 160ms on this link. It cannot express a callback, so it fits
+exactly the reads Phase 4 is about to add a great many of, and not the auth
+flows that branch. **Recorded here as the first thing to look at when Phase 4
+endpoints feel slow**, with a measured number attached rather than an instinct.
+
+None of this matters in production, where the API sits in London beside its
+database and a round trip is about a millisecond. It matters every day in
+development, which is where the work happens.
+
+**Exit criterion met (2026-09-06).** Thirty-three integration tests pass in one
+run, in 222 seconds, against managed PostgreSQL 16 in London. The same run had
+failed sixteen of thirty-three in 670 seconds three hours earlier, with no code
+change between them beyond the timeout: the difference was the machine's link,
+which is why the probe above exists.
+
+The fourteen Google tests, in full:
+
+- Somebody with no account signs in with Google and gets one, with the
+  companion rows the trigger creates and a session that refreshes.
+- Somebody who registered with a password and later signs in with Google, on a
+  verified address, lands in the same account rather than a second one.
+- Signing in with Google twice reuses the identity rather than creating another.
+- A Google session refreshes, rotates and signs out through exactly the same
+  endpoints a password session uses, with no code that knows where it came from.
+- An unverified address attaches to nothing and creates nothing.
+- An identity with no address at all is refused.
+- A callback whose state does not match the flow is refused.
+- A callback with no flow cookie is refused.
+- An ID token signed with a key the issuer does not publish is refused.
+- An ID token minted for a different sign-in attempt is refused.
+- Cancelling at the provider comes back to the sign-in page, not an error page.
+- An unconfigured server answers 503 rather than 404.
+- The start route sends state, a nonce and a PKCE challenge.
+- The callback answers with a cookie and a redirect, never a token in a URL.
+
+**What is still not covered, unchanged from 3a.** The HTTP-level "404 for
+another user's resource" assertion waits on Phase 4. The mail transport is a
+recorder. Rate limits are per instance. And no real Google client id has ever
+been used: the suite proves the protocol against an issuer we control, which is
+the right thing to test, but a Google Cloud OAuth client still has to be created
+before anybody can sign in with an actual Google account.
 
 **One honest gap in the exit criterion.** "User B receives 404 for every one of
 user A's resources" cannot be tested over HTTP yet, because there are no

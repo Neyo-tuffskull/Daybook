@@ -6,19 +6,24 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import {
+  authTransaction,
   consumeEmailVerificationToken,
   consumePasswordResetToken,
   createEmailVerificationToken,
   createPasswordResetToken,
   createUser,
   findUserByEmail,
+  findIdentity,
   findUserById,
   getProfile,
+  linkIdentity,
+  touchIdentity,
   invalidateOutstandingTokens,
   markEmailVerified,
   setPasswordHash,
   updateProfile,
   type AuthUserRow,
+  type IdentityProvider,
   type SessionClient,
 } from '@daybook/db';
 import { assertValidTimeZone } from '@daybook/domain';
@@ -36,6 +41,12 @@ export interface SignedInUser {
   displayName: string | null;
   timezone: string;
 }
+
+/**
+ * Why a federated sign-in was turned away. The distinction matters to the
+ * person: one of these is fixable by them and the other is not.
+ */
+export type FederatedRefusal = 'unverified_email' | 'account_unavailable';
 
 export interface SignInResult {
   accessToken: string;
@@ -196,6 +207,123 @@ export class AuthService {
         timezone: profile?.timezone ?? 'Europe/London',
       },
     };
+  }
+
+  // --- Federated sign-in ---------------------------------------------------
+
+  /**
+   * Signs in through an identity a provider has vouched for.
+   *
+   * Three outcomes, and the one that matters is the refusal. The rules:
+   *
+   * 1. The provider account is already linked. Sign in as its owner. Nothing
+   *    about the email address is consulted, because the link was established
+   *    once and the provider's subject id is what identifies the account.
+   *
+   * 2. The provider account is unknown and the provider says the address is
+   *    verified. Attach it to the account with that address, or create one.
+   *    "Verified" is the whole basis for doing this: the provider is asserting
+   *    that this person controls that mailbox, which is the same thing our own
+   *    verification link proves.
+   *
+   * 3. The provider account is unknown and the address is absent or
+   *    unverified. Refuse, and say so. Linking on an unverified address is the
+   *    classic account takeover: register `someone@example.com` at a provider
+   *    that does not check, sign in here, and inherit their account. The person
+   *    can still sign in with their password and link the account deliberately
+   *    from settings, which is a Phase 13 screen.
+   */
+  async signInWithIdentity(input: {
+    provider: IdentityProvider;
+    subject: string;
+    email: string | null;
+    emailVerified: boolean;
+    displayName: string | null;
+    client: SessionClient;
+    context: RefreshContext;
+  }): Promise<SignInResult | { refused: FederatedRefusal }> {
+    const existing = await findIdentity(input.provider, input.subject);
+    if (existing) {
+      await touchIdentity(existing.id, input.email);
+      const user = await findUserById(existing.user_id);
+      if (!user || user.status !== 'active') {
+        this.log.warn(
+          { userId: existing.user_id, provider: input.provider },
+          'federated sign-in refused for a missing or inactive account',
+        );
+        return { refused: 'account_unavailable' };
+      }
+      return this.completeSignIn(user, input.client, input.context);
+    }
+
+    const email = input.email ? normaliseEmail(input.email) : null;
+    if (!email || !input.emailVerified) {
+      this.log.warn(
+        { provider: input.provider, hasEmail: email !== null },
+        'federated sign-in refused: the provider did not vouch for an address',
+      );
+      return { refused: 'unverified_email' };
+    }
+
+    const user = await this.attachOrCreate(input.provider, input.subject, email, input.displayName);
+    if (!user) return { refused: 'account_unavailable' };
+
+    return this.completeSignIn(user, input.client, input.context);
+  }
+
+  /**
+   * Finds or creates the account behind a verified provider identity, and
+   * attaches the identity to it.
+   *
+   * One transaction, because a user with no identity and no password is an
+   * account nobody can ever sign in to, and a crash between the two writes
+   * would create exactly that.
+   */
+  private async attachOrCreate(
+    provider: IdentityProvider,
+    subject: string,
+    email: string,
+    displayName: string | null,
+  ): Promise<AuthUserRow | null> {
+    const user = await authTransaction(async (tx) => {
+      const found = await findUserByEmail(email, tx);
+      // No password hash: this account has never had a password, and the reset
+      // flow is how its owner sets one if they ever want to sign in without
+      // the provider.
+      const account = found ?? (await createUser(email, null, tx));
+      if (!account) return null;
+
+      const linked = await linkIdentity(
+        { userId: account.id, provider, providerAccountId: subject, emailAtProvider: email },
+        tx,
+      );
+      if (!linked) {
+        // Somebody else linked this provider account between the lookup and
+        // here. Rare, and the second request should simply follow the first.
+        return null;
+      }
+
+      // The provider vouched for the address, which is the same assurance our
+      // own verification link gives. Making them prove it twice teaches people
+      // that verification emails are noise.
+      await markEmailVerified(account.id, tx);
+      return { ...account, email_verified_at: account.email_verified_at ?? new Date() };
+    });
+
+    if (user) {
+      if (displayName) {
+        // Outside the transaction because it runs as the user under row-level
+        // security on a different connection, and because a failure here costs
+        // a display name rather than an account.
+        await updateProfile(user.id, { displayName });
+      }
+      this.log.log({ userId: user.id, provider }, 'account linked to a federated identity');
+      return user;
+    }
+
+    // The link raced. Re-read and follow whoever won.
+    const identity = await findIdentity(provider, subject);
+    return identity ? findUserById(identity.user_id) : null;
   }
 
   // --- Sign out ------------------------------------------------------------

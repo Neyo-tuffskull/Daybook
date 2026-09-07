@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { GOOGLE_ENDPOINTS } from './auth/oidc.ts';
 
 /**
  * Configuration is validated once, at boot, and the process refuses to start if
@@ -42,6 +43,19 @@ const schema = z.object({
   AUTH_ARGON2_PARALLELISM: z.coerce.number().int().min(1).max(16).default(1),
 
   AUTH_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(10),
+
+  // Google sign-in is optional. With no client id and secret the routes are
+  // still registered but answer 503, which is a truthful "this deployment does
+  // not offer that" rather than a 404 pretending the feature does not exist.
+  GOOGLE_OAUTH_CLIENT_ID: z.string().optional(),
+  GOOGLE_OAUTH_CLIENT_SECRET: z.string().optional(),
+  GOOGLE_OAUTH_REDIRECT_URI: z.string().url().optional(),
+  /**
+   * Points the OIDC client at a different issuer. This exists so the tests can
+   * run a real issuer of their own and have the real verification code check a
+   * real signature against a real JWKS. Unset in every other case.
+   */
+  GOOGLE_OIDC_BASE_URL: z.string().url().optional(),
 });
 
 export interface AppConfig {
@@ -66,7 +80,19 @@ export interface AppConfig {
   cookieDomain: string | undefined;
   argon2: { memoryCost: number; timeCost: number; parallelism: number };
   authRateLimitPerMinute: number;
+  /** Null when this deployment has no Google credentials configured. */
+  google: GoogleConfig | null;
   isProduction: boolean;
+}
+
+export interface GoogleConfig {
+  clientId: string;
+  clientSecret: string;
+  redirectUri: string;
+  issuer: string;
+  authorizationEndpoint: string;
+  tokenEndpoint: string;
+  jwksUri: string;
 }
 
 export const JWT_ISSUER = 'daybook';
@@ -112,7 +138,43 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       parallelism: value.AUTH_ARGON2_PARALLELISM,
     },
     authRateLimitPerMinute: value.AUTH_RATE_LIMIT_PER_MINUTE,
+    google: googleConfig(value),
     isProduction: value.NODE_ENV === 'production',
+  };
+}
+
+/**
+ * Google sign-in is configured or it is not; there is no partly configured
+ * state worth supporting. A client id without a secret is a mistake that would
+ * otherwise surface as a failed code exchange in front of a user.
+ */
+function googleConfig(value: z.infer<typeof schema>): GoogleConfig | null {
+  const clientId = value.GOOGLE_OAUTH_CLIENT_ID;
+  const clientSecret = value.GOOGLE_OAUTH_CLIENT_SECRET;
+  if (!clientId && !clientSecret) return null;
+  if (!clientId || !clientSecret) {
+    throw new Error(
+      'Google sign-in needs both GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET, or neither.',
+    );
+  }
+
+  const base = value.GOOGLE_OIDC_BASE_URL;
+  const endpoints = base
+    ? {
+        issuer: stripTrailingSlash(base),
+        authorizationEndpoint: `${stripTrailingSlash(base)}/authorize`,
+        tokenEndpoint: `${stripTrailingSlash(base)}/token`,
+        jwksUri: `${stripTrailingSlash(base)}/jwks`,
+      }
+    : GOOGLE_ENDPOINTS;
+
+  return {
+    clientId,
+    clientSecret,
+    redirectUri:
+      value.GOOGLE_OAUTH_REDIRECT_URI ??
+      `${stripTrailingSlash(value.API_PUBLIC_URL)}/v1/auth/google/callback`,
+    ...endpoints,
   };
 }
 
