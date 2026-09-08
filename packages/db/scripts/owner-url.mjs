@@ -11,6 +11,8 @@
  * instead, and refuses to run rather than falling back to the wrong role.
  */
 
+import { withGenerousTimeouts } from './database-ready.mjs';
+
 /** Reads `--target=dev|test` out of an argument list, returning the rest. */
 export function takeTarget(args) {
   const index = args.findIndex((arg) => arg.startsWith('--target='));
@@ -53,7 +55,9 @@ export function resolveOwnerUrl(target) {
     throw new Error(`${variable} is not a valid connection string.`);
   }
 
-  return { url, variable };
+  // Every caller of this function talks to a database that is allowed to be
+  // asleep, so the timeouts are raised here rather than in each of them.
+  return { url: withGenerousTimeouts(url), variable };
 }
 
 /**

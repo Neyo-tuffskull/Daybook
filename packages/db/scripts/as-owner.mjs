@@ -9,6 +9,7 @@
  */
 import { describe, resolveOwnerUrl, takeTarget } from './owner-url.mjs';
 import { runPrisma } from './run-prisma.mjs';
+import { waitForDatabase } from './database-ready.mjs';
 
 try {
   const { target, rest } = takeTarget(process.argv.slice(2));
@@ -20,6 +21,10 @@ try {
 
   const { url } = resolveOwnerUrl(target);
   console.log(`-> ${describe(url)}`);
+  // The Prisma CLI is a separate process with its own connection and no
+  // patience. Waking the database here means it starts against something that
+  // is already answering.
+  await waitForDatabase(url);
   process.exit(await runPrisma(rest, url));
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));

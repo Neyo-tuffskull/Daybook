@@ -42,6 +42,9 @@ import { takeTarget } from './owner-url.mjs';
 
 const SAMPLES = 15;
 
+/** A UUID belonging to nobody. Only ever written to a setting, never queried. */
+const PROBE_USER = '00000000-0000-0000-0000-000000000000';
+
 /** Somewhere with no relationship to this project, to tell "my connection is
  *  slow" apart from "the provider is slow". */
 const CONTROL_HOST = 'www.cloudflare.com';
@@ -80,6 +83,9 @@ console.log('');
 console.log('Queries');
 
 let warm = null;
+let asUserMs = null;
+let batchMs = null;
+let batchSharesTransaction = null;
 
 try {
   // The generated client, not the `@prisma/client` package: this schema
@@ -118,16 +124,38 @@ try {
     // transaction. If this is far worse than the line above, the pooler is
     // charging us for session state rather than the statements costing
     // anything.
-    const asUserMs = await time(() =>
+    asUserMs = await time(() =>
       prisma.$transaction(
         async (tx) => {
-          await tx.$executeRaw`SELECT set_config('app.current_user_id', '00000000-0000-0000-0000-000000000000', true)`;
+          await tx.$executeRaw`SELECT set_config('app.current_user_id', ${PROBE_USER}, true)`;
           await tx.$queryRaw`SELECT 1`;
         },
         { timeout: 120_000, maxWait: 120_000 },
       ),
     );
     console.log(`  set_config plus one statement, as asUser() does    ${pad(asUserMs)}`);
+
+    // The same two statements as a batch rather than a callback. Two questions
+    // at once, and the second matters more than the first: does the batch cost
+    // fewer round trips, and do both statements land in one transaction? A
+    // transaction-local setting is invisible to the second statement if they do
+    // not, and row-level security would then return no rows rather than an
+    // error, which is the worst way for this to be wrong.
+    let seen = null;
+    batchMs = await time(async () => {
+      const [, rows] = await prisma.$transaction([
+        prisma.$executeRaw`SELECT set_config('app.current_user_id', ${PROBE_USER}, true)`,
+        prisma.$queryRaw`SELECT current_setting('app.current_user_id', true) AS value`,
+      ]);
+      seen = rows?.[0]?.value ?? null;
+    });
+    batchSharesTransaction = seen === PROBE_USER;
+    console.log(`  the same two as a batch, $transaction([...])       ${pad(batchMs)}`);
+    console.log(
+      `  batch shares one transaction                       ${
+        batchSharesTransaction ? '      yes' : `       NO (saw ${seen ?? 'nothing'})`
+      }`,
+    );
   } finally {
     await prisma.$disconnect();
   }
@@ -209,6 +237,25 @@ if (!pooler.best) {
   const perRequest = warm ? warm.median : rtt;
   console.log('');
   console.log(`  At this rate a ten-round-trip request costs about ${pad(perRequest * 10)}`);
+
+  if (asUserMs !== null && batchMs !== null) {
+    console.log('');
+    if (!batchSharesTransaction) {
+      console.log('  The batch did NOT share a transaction, so a transaction-local');
+      console.log('  set_config is invisible to the statement that needs it. Batching');
+      console.log('  user-scoped reads this way would return no rows rather than an');
+      console.log('  error. Do not do it, whatever the timings say.');
+    } else if (batchMs < asUserMs * 0.6) {
+      const saved = Math.round(asUserMs - batchMs);
+      console.log(`  Batching saves about ${saved}ms per user-scoped read, and both`);
+      console.log('  statements share a transaction, so row-level security still sees');
+      console.log('  the identity. Worth changing asUser() for single-statement reads.');
+    } else {
+      console.log('  Batching costs about the same as the callback, so the round trips');
+      console.log('  are happening below Prisma rather than above it. Changing asUser()');
+      console.log('  would buy nothing. Leave it alone.');
+    }
+  }
 }
 console.log('');
 

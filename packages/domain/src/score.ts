@@ -32,8 +32,11 @@ export type Priority = 1 | 2 | 3 | 4;
 /** Finishing the critical thing counts for more than finishing the easy thing. */
 export const PRIORITY_WEIGHT: Record<Priority, number> = { 1: 1, 2: 2, 3: 3, 4: 5 };
 
-export type ActivityStatus =
-  'planned' | 'active' | 'completed' | 'partial' | 'skipped' | 'missed' | 'rescheduled';
+// The status vocabulary and the rules for moving between statuses live in
+// activity.ts, so there is one definition rather than two that can drift. It is
+// imported and not re-exported: the barrel exports it from activity.ts, and two
+// `export *` sources offering the same name is an ambiguous re-export.
+import type { ActivityStatus } from './activity.ts';
 
 export interface ScoredActivity {
   priority: Priority;
@@ -124,8 +127,16 @@ function completionOf(activity: ScoredActivity): number {
     case 'partial':
       return clamp(activity.completionRatio ?? 0.5, 0, 1);
     case 'active':
+    // A paused activity is half-done in exactly the way an active one is. It
+    // needs naming here rather than falling to the default, because the
+    // default reads as "this never happened" and would score a deliberate
+    // pause as a failure.
+    case 'paused':
       return 0.5;
-    default:
+    case 'planned':
+    case 'skipped':
+    case 'missed':
+    case 'rescheduled':
       return 0;
   }
 }

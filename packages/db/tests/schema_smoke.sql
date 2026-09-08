@@ -16,8 +16,17 @@
 -- against the same database and leaves nothing behind. A test suite that only
 -- works on a virgin database is a test suite people stop running.
 
-DELETE FROM users WHERE email IN ('ada@example.com', 'grace@example.com');
-DELETE FROM activity_categories WHERE id = '33333333-3333-3333-3333-333333333333';
+-- Cleared by id as well as by email. Every fixture below uses a fixed id, so a
+-- run that stops partway leaves rows behind, and deleting only by email misses
+-- the ones whose table has no email. That turns a single failure into every
+-- later run failing on a primary key, which hides whatever the real problem
+-- was. Order matters: children before parents.
+DELETE FROM activities WHERE id = '77777777-7777-7777-7777-777777777777';
+DELETE FROM activity_categories WHERE id = '88888888-8888-8888-8888-888888888888';
+DELETE FROM users
+ WHERE email IN ('ada@example.com', 'grace@example.com')
+    OR id IN ('11111111-1111-1111-1111-111111111111',
+              '22222222-2222-2222-2222-222222222222');
 
 INSERT INTO users (id, email, password_hash)
 VALUES ('11111111-1111-1111-1111-111111111111', 'ada@example.com', 'argon2-placeholder'),
@@ -30,8 +39,15 @@ UPDATE user_profiles SET display_name = 'Ada', timezone = 'Africa/Lagos'
 UPDATE user_profiles SET display_name = 'Grace', timezone = 'Europe/London'
  WHERE user_id = '22222222-2222-2222-2222-222222222222';
 
-INSERT INTO activity_categories (id, user_id, name, color, is_system, is_fitness)
-VALUES ('33333333-3333-3333-3333-333333333333', NULL, 'Fitness', '#2F44C8', true, true);
+-- The fitness category is no longer invented here. Migration 0004 seeds the
+-- eight system categories, and a second system row called Fitness now collides
+-- with the partial unique index over lower(name). The fixture reads the seeded
+-- row instead, which is also what the application will do.
+CREATE OR REPLACE FUNCTION smoke_fitness_category() RETURNS uuid AS $$
+  SELECT id FROM activity_categories
+   WHERE user_id IS NULL AND is_fitness AND deleted_at IS NULL
+   LIMIT 1
+$$ LANGUAGE sql STABLE;
 
 -- ---------------------------------------------------------------------------
 -- 1. An invalid IANA timezone is rejected
@@ -54,7 +70,7 @@ INSERT INTO activities (id, user_id, occurrence_date, title, category_id,
                         planned_start, planned_end, actual_start, status)
 VALUES ('44444444-4444-4444-4444-444444444444',
         '11111111-1111-1111-1111-111111111111',
-        DATE '2026-08-28', 'Gym', '33333333-3333-3333-3333-333333333333',
+        DATE '2026-08-28', 'Gym', smoke_fitness_category(),
         TIMESTAMPTZ '2026-08-28 18:00:00+01',
         TIMESTAMPTZ '2026-08-28 19:30:00+01',
         TIMESTAMPTZ '2026-08-28 18:05:00+01',
@@ -446,7 +462,110 @@ BEGIN
 END $$;
 
 -- ---------------------------------------------------------------------------
+-- 19. The system categories exist, are shared, and exactly one is the fitness
+--     one. SYNC.md rules 2 and 3 select on is_fitness and say "if exactly one,
+--     that is the match", which stops meaning anything if two rows claim it.
+--     Seeded by migration 0004; before that every account had an empty picker
+--     and rule 2 could never fire.
+-- ---------------------------------------------------------------------------
+DO $$
+DECLARE seeded int; fitness int; owned int;
+BEGIN
+  SELECT count(*) INTO seeded
+    FROM activity_categories WHERE user_id IS NULL AND deleted_at IS NULL;
+  IF seeded < 8 THEN
+    RAISE EXCEPTION 'FAIL: expected at least 8 system categories, found %', seeded;
+  END IF;
+
+  SELECT count(*) INTO fitness
+    FROM activity_categories
+   WHERE user_id IS NULL AND is_fitness AND deleted_at IS NULL;
+  IF fitness <> 1 THEN
+    RAISE EXCEPTION 'FAIL: expected exactly one system fitness category, found %', fitness;
+  END IF;
+
+  -- is_system and a null owner move together, or a user could own a row that
+  -- every other user can read.
+  SELECT count(*) INTO owned
+    FROM activity_categories WHERE user_id IS NULL AND NOT is_system;
+  IF owned <> 0 THEN
+    RAISE EXCEPTION 'FAIL: % shared categories are not marked is_system', owned;
+  END IF;
+  RAISE NOTICE 'ok 19 system categories are seeded and exactly one is fitness';
+END $$;
+
+-- ---------------------------------------------------------------------------
+-- 20. An activity can be paused, and cannot be given a status nobody defined.
+--     The state machine in packages/domain can produce 'paused'; if the CHECK
+--     constraint disagrees, the disagreement surfaces as a 500 on a write
+--     rather than as a refusal.
+-- ---------------------------------------------------------------------------
+DO $$
+DECLARE stored text;
+BEGIN
+  INSERT INTO activities (id, user_id, occurrence_date, title, priority,
+                          planned_start, planned_end, status)
+  VALUES ('77777777-7777-7777-7777-777777777777',
+          '11111111-1111-1111-1111-111111111111',
+          DATE '2026-09-07', 'Gym', 3,
+          TIMESTAMPTZ '2026-09-07 18:00+01', TIMESTAMPTZ '2026-09-07 19:30+01',
+          'paused');
+
+  SELECT status INTO stored FROM activities
+   WHERE id = '77777777-7777-7777-7777-777777777777';
+  IF stored <> 'paused' THEN
+    RAISE EXCEPTION 'FAIL: stored status was %, expected paused', stored;
+  END IF;
+
+  BEGIN
+    UPDATE activities SET status = 'procrastinating'
+     WHERE id = '77777777-7777-7777-7777-777777777777';
+    RAISE EXCEPTION 'FAIL: the status constraint accepted an undefined status';
+  EXCEPTION WHEN check_violation THEN
+    NULL;
+  END;
+  RAISE NOTICE 'ok 20 paused is a legal status and nonsense is still rejected';
+END $$;
+
+-- ---------------------------------------------------------------------------
+-- 21. Deleting a category leaves its activities alone rather than cascading.
+--     API.md calls this "reassigns to Uncategorised"; uncategorised is null,
+--     and losing the day's plan because a colour was tidied up would be the
+--     worst possible reading of that sentence.
+-- ---------------------------------------------------------------------------
+DO $$
+DECLARE survivors int; still_linked uuid;
+BEGIN
+  INSERT INTO activity_categories (id, user_id, name, color)
+  VALUES ('88888888-8888-8888-8888-888888888888',
+          '11111111-1111-1111-1111-111111111111', 'Doomed', '#000000');
+
+  UPDATE activities SET category_id = '88888888-8888-8888-8888-888888888888'
+   WHERE id = '77777777-7777-7777-7777-777777777777';
+
+  DELETE FROM activity_categories WHERE id = '88888888-8888-8888-8888-888888888888';
+
+  SELECT count(*) INTO survivors FROM activities
+   WHERE id = '77777777-7777-7777-7777-777777777777';
+  IF survivors <> 1 THEN
+    RAISE EXCEPTION 'FAIL: deleting a category deleted its activities';
+  END IF;
+
+  SELECT category_id INTO still_linked FROM activities
+   WHERE id = '77777777-7777-7777-7777-777777777777';
+  IF still_linked IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL: activity still points at a deleted category';
+  END IF;
+  RAISE NOTICE 'ok 21 deleting a category clears the link and keeps the activity';
+END $$;
+
+-- ---------------------------------------------------------------------------
 -- Leave nothing behind
 -- ---------------------------------------------------------------------------
-DELETE FROM users WHERE email IN ('ada@example.com', 'grace@example.com');
-DELETE FROM activity_categories WHERE id = '33333333-3333-3333-3333-333333333333';
+DELETE FROM activities WHERE id = '77777777-7777-7777-7777-777777777777';
+DELETE FROM activity_categories WHERE id = '88888888-8888-8888-8888-888888888888';
+DELETE FROM users
+ WHERE email IN ('ada@example.com', 'grace@example.com')
+    OR id IN ('11111111-1111-1111-1111-111111111111',
+              '22222222-2222-2222-2222-222222222222');
+DROP FUNCTION IF EXISTS smoke_fitness_category();

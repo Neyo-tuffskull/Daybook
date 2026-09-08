@@ -1,7 +1,7 @@
 # Development Roadmap, Risks and Phase State
 
-**Status:** Phases 1, 2 and 3 complete. Next up is Phase 4, Daybook core.
-**Last updated:** 2026-09-06
+**Status:** Phases 1, 2 and 3 complete. Phase 4 in progress: the database and domain half is done and proved, the API and UI are next.
+**Last updated:** 2026-09-07
 
 This file is the session-to-session handover. Any future session should read it first to know exactly where the build stopped.
 
@@ -15,7 +15,7 @@ This file is the session-to-session handover. Any future session should read it 
 | 1     | Architecture                  | **complete, signed off** | Documentation set complete. All eight decisions closed.                                                                                                                              |
 | 2     | Project foundation            | **complete**             | Verified end to end on Windows 11 / Node 26 against managed PostgreSQL 16 in London. `/v1/readyz` returns ok as the restricted role. CI green on GitHub Actions.                     |
 | 3     | Authentication                | **complete**             | 33 integration tests pass against managed PostgreSQL 16 in London: 19 for password auth, 14 for Google sign-in against a real OIDC issuer. Both halves of the exit criterion proved. |
-| 4     | Daybook core                  | not started              |                                                                                                                                                                                      |
+| 4     | Daybook core                  | **in progress**          | Database and domain half done: migration 0004, 21 schema assertions on both databases, 45 domain unit tests. API and UI to come.                                                     |
 | 5     | Recurring schedules           | not started              |                                                                                                                                                                                      |
 | 6     | Habits                        | not started              |                                                                                                                                                                                      |
 | 7     | Journal                       | not started              |                                                                                                                                                                                      |
@@ -393,20 +393,34 @@ put a price on each one. Three worked examples from the same run:
 - The first query of a process costs 2,028ms, which is connection setup and
   happens once.
 
-The interactive transaction is the expensive part, and it is ours rather than
-the network's. Prisma's array form, `$transaction([...])`, sends the batch in
-one round trip, which would take a single-statement user-scoped read from about
-760ms to about 160ms on this link. It cannot express a callback, so it fits
-exactly the reads Phase 4 is about to add a great many of, and not the auth
-flows that branch. **Recorded here as the first thing to look at when Phase 4
-endpoints feel slow**, with a measured number attached rather than an instinct.
+The obvious suspect was Prisma's interactive transaction, and the obvious fix
+was its array form, `$transaction([...])`, which batches at the client. I wrote
+into this file that it would take a single-statement user-scoped read from about
+760ms to about 160ms, called that a measured number, and it was not one.
+
+**Measured 2026-09-07, before changing anything.** The probe now runs the same
+two statements both ways. The callback costs 952ms, the batch 733ms, and the
+batch does share a transaction, so a transaction-local `set_config` is visible
+to the statement after it. But 733ms is still about five round trips at this
+link's 145ms, which means Prisma issues `BEGIN`, the statements and `COMMIT` to
+Postgres separately either way. The batching happens above the query engine, not
+between the engine and the database.
+
+**So `asUser()` stays as it is.** A 23% difference, on a run whose control host
+produced a 795ms outlier, does not justify touching every read in the codebase.
+Recorded so nobody re-opens it on the same reasoning I did.
+
+The lever that is left is the number of statements an endpoint issues, which is
+a matter of writing one query instead of four rather than of choosing a
+different transaction API.
 
 None of this matters in production, where the API sits in London beside its
 database and a round trip is about a millisecond. It matters every day in
 development, which is where the work happens.
 
 **Exit criterion met (2026-09-06).** Thirty-three integration tests pass in one
-run, in 222 seconds, against managed PostgreSQL 16 in London. The same run had
+run, in 222 seconds, against managed PostgreSQL 16 in London. Pushed as
+`7f01d2e`, CI run #10 green in 2m13s. Phase 3a is `b83e73a`, CI run #9 green. The same run had
 failed sixteen of thirty-three in 670 seconds three hours earlier, with no code
 change between them beyond the timeout: the difference was the machine's link,
 which is why the probe above exists.
@@ -431,6 +445,24 @@ The fourteen Google tests, in full:
 - The start route sends state, a nonce and a PKCE challenge.
 - The callback answers with a cookie and a redirect, never a token in a URL.
 
+**Credentials rotated 2026-09-07.** Every secret that had passed through a chat
+window during Phases 2 and 3 was replaced: the `neondb_owner` password through
+Neon's console, `daybook_app` and `daybook_auth` through `ALTER ROLE` as the
+owner, and the Ed25519 signing keypair regenerated with `AUTH_JWT_KEY_ID` bumped
+to `daybook-ed25519-2`. Proved by the same 33 tests passing on the new values in
+164 seconds.
+
+Worth keeping as a rule rather than an incident: anything that has been through
+a chat window is a development credential for the rest of its life. The
+production Neon project at Phase 16 gets credentials that have never been in a
+conversation, and the same goes for its signing key.
+
+One thing that made the rotation harder than it needed to be, and is worth
+avoiding next time: transcribing a password twice, once into `.env` and once
+into the SQL editor, gives it two chances to be wrong, and it was. Copying the
+value out of `.env` into `ALTER ROLE` runs the transcription in one direction
+only, so the two cannot disagree.
+
 **What is still not covered, unchanged from 3a.** The HTTP-level "404 for
 another user's resource" assertion waits on Phase 4. The mail transport is a
 recorder. Rate limits are per instance. And no real Google client id has ever
@@ -450,6 +482,81 @@ HTTP-level assertion is a Phase 4 exit requirement.
 Categories, one-off activities, the day timeline, status transitions with the state machine, start/pause/resume/complete/skip, the current-activity view, the daily dashboard.
 
 **Exit criterion:** a full day can be planned, executed and completed through the UI, with actual times recorded, and illegal transitions rejected with 409.
+
+Built as a vertical slice rather than API-first: one path end to end (a
+category, an activity in it, that activity on a day, marked done) before
+anything widens. The alternative gives better test coverage sooner and nothing
+usable until late, which on a product whose purpose is daily use is the wrong
+trade.
+
+#### First delivery, 2026-09-07: the database and the domain
+
+`0004_daybook_core` and `packages/domain/src/activity.ts`. Twenty-one schema
+assertions pass against both `neondb` and `daybook_test`; forty-five domain unit
+tests pass with no database and no network.
+
+**`paused` is now a status.** API.md has always defined `/pause` and `/resume`,
+and DATABASE.md has always said `actual_duration_minutes` accumulates across
+pauses, but the CHECK constraint had nowhere for a paused activity to sit. The
+alternative was to keep the status `active` and derive "is the clock running"
+from the status-event log on every read: cheaper in schema, more expensive on
+every request, and it makes a state the user can see on screen into something
+reconstructed rather than stored. Decided as **D13**.
+
+**The eight system categories are seeded at last.** Specified in Phase 1 and
+never written, so every account has had an empty category picker since Phase 2,
+and SYNC.md rule 2 could never fire because no row had `is_fitness` set. That
+would have surfaced in Phase 9 as duplicate activities rather than as an error.
+
+**The state machine is a table, not a switch,** because a missing entry is then
+an absence rather than a fallthrough. `completionOf` in `score.ts` ended in
+`default: return 0`, which is exactly how a new status gets added and silently
+scores a deliberate pause as a failure. It now names every status and has no
+default, so the next one added fails typecheck.
+
+**Elapsed time comes from the event log.** `end - start` is wrong the moment
+anybody pauses. `runningMinutes` sums only the running stretches, takes `now` as
+a parameter so Phase 12's offline replay computes the same answer it would have
+computed at the time, and ignores a repeated `active` so a replayed transition
+cannot double count.
+
+**Defect 27: `pnpm test` has been passing on nothing, on Windows, since Phase 1.**
+The domain package ran `node --test 'test/*.test.ts'`. On Linux the shell strips
+the quotes and Node gets a glob; on Windows the quotes survive, Node looks for a
+file with quotes in its name, finds none, and **exits 0**. So the local command
+reported success while running zero tests. CI on Ubuntu was genuinely running
+them, which is why the roadmap's claim of 30 passing domain tests was true, but
+it was true by luck of the operating system rather than because the command
+worked. Now `node --test test/*.test.ts`, which Node expands itself on both.
+
+The general lesson is worth more than the fix: a test command that finds no
+tests must fail, not pass. Anything that can silently run nothing eventually
+will.
+
+**Defect 28: duplicate fixture ids, mine.** The new schema assertions used
+`44444444-…` and `55555555-…`, both already taken in the same file, one as an
+activity and one as a series. Both databases failed identically on a primary
+key. Before finding it I shipped a fix for leftover state from partial runs,
+which was a real improvement to a cause that did not exist. Ten seconds of
+`grep` on the file would have prevented four exchanges.
+
+**Defect 29: the `db:*` scripts never learned defect 24's lesson.** The
+integration suite has waited for a cold Neon compute with backoff since
+2026-09-06; the migration and smoke scripts used Prisma's ten second default and
+answered a suspended compute with `P1001 can't reach database server`, which
+reads as an outage. It sent us to the Neon console twice for a compute that was
+merely asleep. `scripts/database-ready.mjs` now raises both timeouts at
+`resolveOwnerUrl`, so every script that resolves the owner URL inherits it, and
+both entry points wait with backoff and say so while waiting.
+
+**Carried, not fixed:** `apps/api/test/setup-env.ts` holds a second copy of that
+waiting logic, written when defect 24 was found. Two copies of one idea drift.
+Folding them together needs the shared module to be importable from `apps/api`,
+which is a small piece of work worth doing deliberately rather than bolting on.
+
+**Re-measured while here.** The batch transaction question from earlier the same
+day, on a healthy link: 699ms for the callback, 715ms batched. The batch is now
+marginally slower. `asUser()` stays as it is, confirmed twice.
 
 ### Phase 5: Recurring schedules
 
@@ -545,6 +652,7 @@ The alternative, building all the infrastructure first and the experience last, 
 | D9 | **Credential queries are written SQL, not generated models** | **`prisma db pull` introspects as `daybook_app`, which cannot see three of the five credential tables. Widening that role to satisfy a code generator would undo the reason the role exists, so `packages/db/src/auth.ts` is parameterised SQL against the schema in the same package.** | 2026-09-04 |
 | D10 | **Companion rows come from a trigger** | **A `SECURITY DEFINER` trigger creates `user_profiles`, `user_preferences` and `notification_preferences` on every user insert. The alternatives were to widen `daybook_auth` until it could write profile tables, or to use a second transaction and accept a window where a user has no profile.** | 2026-09-04 |
 | D11 | **Registration says when an address is taken** | **Sign-in and password reset refuse to reveal whether an account exists; registration does not, because any answer other than success reveals it anyway. The genuinely non-enumerating design answers "check your email" always and cannot sign anyone in at the end of registering. The defence is the rate limit on the route.** | 2026-09-04 |
+| D13 | **`paused` is a stored status, not a derived one** | **A state the user can see on screen is a column, not a reconstruction from the event log. The cost is handling it explicitly in the score, in the end-of-day sweep and in `daily_summaries`; the alternative cost is a query per activity on every timeline read, on a link where a round trip is 150ms.** | 2026-09-07 |
 | D12 | **Rate limits are in-memory** | **Correct for one instance, wrong for several. Moves to Redis when the API is actually scaled out, which is Phase 16 at the earliest. Recorded rather than left as a surprise.** | 2026-09-04 |
 
 ### Consequences of D4 for the auth design

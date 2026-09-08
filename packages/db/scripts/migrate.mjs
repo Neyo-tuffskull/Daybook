@@ -26,6 +26,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, resolveOwnerUrl, takeTarget } from './owner-url.mjs';
+import { waitForDatabase } from './database-ready.mjs';
 import { runPrisma } from './run-prisma.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -106,6 +107,10 @@ async function main() {
   if (migrations.length === 0) {
     throw new Error(`No migrations found under ${migrationsRoot}`);
   }
+
+  // Before the ledger, before anything: a suspended compute answers the first
+  // query with a pool timeout, which reads as an outage rather than as a nap.
+  await waitForDatabase(url);
 
   const PrismaClient = await loadPrismaClient();
   const prisma = new PrismaClient({ datasources: { db: { url } } });
