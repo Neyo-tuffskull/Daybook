@@ -7,6 +7,7 @@
  * in production.
  */
 import { z } from 'zod';
+import { ACTIVITY_STATUSES, type ActivityStatus } from '@daybook/domain';
 
 export const uuid = z.string().uuid();
 export const dayKey = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'expected YYYY-MM-DD');
@@ -15,35 +16,30 @@ export const instant = z.string().datetime({ offset: true });
 
 export const priority = z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]);
 
-export const activityStatus = z.enum([
-  'planned',
-  'active',
-  'completed',
-  'partial',
-  'skipped',
-  'missed',
-  'rescheduled',
-]);
-export type ActivityStatus = z.infer<typeof activityStatus>;
+/**
+ * The status vocabulary, derived rather than restated.
+ *
+ * This file used to spell the seven statuses out again and carry its own
+ * `LEGAL_TRANSITIONS` table beside them. Two statements of one rule drift, and
+ * these two did: the table here allowed `skipped -> planned` while a later
+ * state machine in `@daybook/domain` made it terminal, and nothing failed,
+ * because nothing imported this table. Both are now the same object.
+ *
+ * The cast is because `z.enum` wants a non-empty tuple and `ACTIVITY_STATUSES`
+ * is a readonly array. Adding a status in the domain package adds it here.
+ */
+export const activityStatus = z.enum(
+  ACTIVITY_STATUSES as unknown as [ActivityStatus, ...ActivityStatus[]],
+);
+export type { ActivityStatus };
 
 /**
- * Transitions are enforced on the server, not merely in the UI. Completing an
- * activity twice, or reviving a completed one, returns 409 rather than quietly
- * rewriting history that analytics has already counted.
+ * Which transitions are legal lives in `@daybook/domain`, next to the rest of
+ * the rules that have nothing to do with HTTP: `transition`, `canTransition`,
+ * `actionsFrom` and `IllegalTransitionError`. Both frontends and the API import
+ * it from there, so the button a screen disables and the request the server
+ * refuses are decided by the same table.
  */
-export const LEGAL_TRANSITIONS: Record<ActivityStatus, ActivityStatus[]> = {
-  planned: ['active', 'completed', 'partial', 'skipped', 'missed', 'rescheduled'],
-  active: ['completed', 'partial', 'skipped', 'planned'],
-  completed: [],
-  partial: ['completed'],
-  skipped: ['planned'],
-  missed: ['completed', 'partial', 'skipped'],
-  rescheduled: [],
-};
-
-export function canTransition(from: ActivityStatus, to: ActivityStatus): boolean {
-  return LEGAL_TRANSITIONS[from].includes(to);
-}
 
 // --- Errors ----------------------------------------------------------------
 

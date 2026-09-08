@@ -21,11 +21,24 @@ export type ActivityStatus =
  * machine's job is to say which. The ratio itself is the caller's business.
  *
  * `miss` is not a user action. The end-of-day sweep applies it to work whose
- * window has passed untouched, which is why it is legal from the three states
- * that mean "not finished" and from nowhere else.
+ * window has passed untouched.
+ *
+ * `reopen` is the undo. It exists because docs/API.md's transition table has
+ * always allowed `skipped -> planned`, `missed -> completed` and
+ * `partial -> completed`, and because backfilling a missed day is an explicit
+ * Phase 6 requirement. A first draft of this file made those terminal, which
+ * contradicted a decision Phase 1 had already taken.
  */
 export type ActivityAction =
-  'start' | 'pause' | 'resume' | 'complete' | 'completePartially' | 'skip' | 'reschedule' | 'miss';
+  | 'start'
+  | 'pause'
+  | 'resume'
+  | 'complete'
+  | 'completePartially'
+  | 'skip'
+  | 'reopen'
+  | 'reschedule'
+  | 'miss';
 
 /**
  * The whole machine, as data.
@@ -41,6 +54,8 @@ const TRANSITIONS: Readonly<
 > = {
   planned: {
     start: 'active',
+    complete: 'completed',
+    completePartially: 'partial',
     skip: 'skipped',
     reschedule: 'rescheduled',
     miss: 'missed',
@@ -50,6 +65,7 @@ const TRANSITIONS: Readonly<
     complete: 'completed',
     completePartially: 'partial',
     skip: 'skipped',
+    reopen: 'planned',
     miss: 'missed',
   },
   paused: {
@@ -57,14 +73,21 @@ const TRANSITIONS: Readonly<
     complete: 'completed',
     completePartially: 'partial',
     skip: 'skipped',
+    reopen: 'planned',
     miss: 'missed',
   },
-  // Everything below is an end state. Correcting one is an explicit reopen
-  // action, which does not exist yet: see docs/ROADMAP.md, Phase 4.
+  // Undo, and finishing something later. A day is not always lived in order:
+  // you skip the gym at 18:00, do it at 21:00, and the record should say so.
+  partial: { complete: 'completed' },
+  skipped: { reopen: 'planned' },
+  missed: {
+    complete: 'completed',
+    completePartially: 'partial',
+    skip: 'skipped',
+  },
+  // The two genuine ends. `completed` is where analytics has already counted
+  // the day, and `rescheduled` means a different row now carries the work.
   completed: {},
-  partial: {},
-  skipped: {},
-  missed: {},
   rescheduled: {},
 };
 

@@ -212,6 +212,9 @@ importers:
 
   packages/contracts:
     dependencies:
+      '@daybook/domain':
+        specifier: workspace:*
+        version: link:../domain
       zod:
         specifier: ^3.23.0
         version: 3.25.76

@@ -60,7 +60,7 @@ describe('the activity state machine', () => {
     assert.equal(canTransition('paused', 'start'), false);
   });
 
-  it('lets you skip or miss anything unfinished, and nothing finished', () => {
+  it('lets you skip or miss anything not yet finished', () => {
     for (const status of ['planned', 'active', 'paused'] as const) {
       assert.equal(canTransition(status, 'skip'), true, `skip from ${status}`);
       assert.equal(canTransition(status, 'miss'), true, `miss from ${status}`);
@@ -71,18 +71,35 @@ describe('the activity state machine', () => {
     }
   });
 
-  it('treats the five end states as ends', () => {
-    assert.deepEqual([...TERMINAL_STATUSES].sort(), [
-      'completed',
-      'missed',
-      'partial',
-      'rescheduled',
-      'skipped',
-    ]);
+  it('treats completed and rescheduled as the only ends', () => {
+    // Only two, and both for a reason: `completed` is where analytics has
+    // already counted the day, and `rescheduled` means another row carries the
+    // work now. Everything else can still be corrected.
+    assert.deepEqual([...TERMINAL_STATUSES].sort(), ['completed', 'rescheduled']);
     for (const status of TERMINAL_STATUSES) {
       assert.equal(actionsFrom(status).length, 0, `${status} should offer nothing`);
       assert.equal(isTerminal(status), true);
     }
+  });
+
+  it('lets a day be lived out of order', () => {
+    // docs/API.md's transition table has allowed all three of these since
+    // Phase 1. You skip the gym at 18:00 and do it at 21:00; you mark
+    // something done that the sweep had already written off; you half-finish
+    // and come back to it.
+    assert.equal(transition('skipped', 'reopen'), 'planned');
+    assert.equal(transition('missed', 'complete'), 'completed');
+    assert.equal(transition('missed', 'completePartially'), 'partial');
+    assert.equal(transition('partial', 'complete'), 'completed');
+  });
+
+  it('undoes a start without inventing a new state for it', () => {
+    // Tapping start by mistake goes back to planned, from either running
+    // state, rather than leaving something permanently begun.
+    assert.equal(transition('active', 'reopen'), 'planned');
+    assert.equal(transition('paused', 'reopen'), 'planned');
+    assert.equal(canTransition('planned', 'reopen'), false);
+    assert.equal(canTransition('completed', 'reopen'), false);
   });
 
   it('completes partially from either running state', () => {
@@ -109,6 +126,7 @@ describe('the activity state machine', () => {
       'complete',
       'completePartially',
       'skip',
+      'reopen',
       'reschedule',
       'miss',
     ];

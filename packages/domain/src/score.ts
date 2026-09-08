@@ -126,11 +126,12 @@ function completionOf(activity: ScoredActivity): number {
       return 1;
     case 'partial':
       return clamp(activity.completionRatio ?? 0.5, 0, 1);
+    // A paused activity is half-done in exactly the way an active one is. Both
+    // are named here rather than left to a default, because a default reads as
+    // "this never happened" and would score a deliberate pause as a failure.
+    // The comment sits above the pair rather than between them: a comment
+    // inside an empty case reads to ESLint as an intent to fall through.
     case 'active':
-    // A paused activity is half-done in exactly the way an active one is. It
-    // needs naming here rather than falling to the default, because the
-    // default reads as "this never happened" and would score a deliberate
-    // pause as a failure.
     case 'paused':
       return 0.5;
     case 'planned':
